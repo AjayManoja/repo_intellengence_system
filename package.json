@@ -1,0 +1,15 @@
+{
+  "name": "repo-intelligence",
+  "version": "1.0.0",
+  "description": "AI-Native Repository Intelligence System",
+  "main": "dist/index.js",
+  "scripts": {
+    "start": "ts-node src/index.ts",
+    "build": "tsc"
+  },
+  "devDependencies": {
+    "typescript": "^5.0.0",
+    "ts-node": "^10.9.1",
+    "@types/node": "^20.0.0"
+  }
+}
