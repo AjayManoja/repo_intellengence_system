@@ -517,7 +517,7 @@ export class GraphPanel {
         function buildAndRender() {
             updateBreadcrumbs();
             
-            const fileNodes = Object.values(graph.nodes || {});
+            const fileNodes = Object.values(graph.nodes || {}).filter(n => !n.path.toLowerCase().endsWith('.md'));
             const maxDepth = Math.max(1, ...fileNodes.map(n => n.depth_rank || 0));
             const graphHeight = Math.max(600, (maxDepth + 1) * 120);
             const graphWidth = document.getElementById('graphShell').clientWidth || 1000;
@@ -766,7 +766,7 @@ export class GraphPanel {
                 .attr("r", d => d.r);
 
             // Tick line for staggered labels
-            node.filter(d => d.rowSize > 4 && d.rowSize <= 8 && d.indexInRow % 2 !== 0 && currentZoomLevel === 'folder' && d.kind === 'file')
+            node.filter(d => d.rowSize > 4 && d.rowSize <= 8 && d.indexInRow % 2 !== 0 && (currentZoomLevel === 'folder' || currentZoomLevel === 'file') && d.kind === 'file')
                 .append('line')
                 .attr('x1', 0)
                 .attr('y1', d => d.r + 4)
@@ -778,9 +778,9 @@ export class GraphPanel {
 
             node.append("text")
                 .attr("class", d => "node-label " + d.kind)
-                .attr("text-anchor", d => (currentZoomLevel === 'folder' && d.rowSize > 8 && d.kind === 'file') ? "end" : "middle")
+                .attr("text-anchor", d => ((currentZoomLevel === 'folder' || currentZoomLevel === 'file') && d.rowSize > 8 && d.kind === 'file') ? "end" : "middle")
                 .attr("transform", d => {
-                    if (currentZoomLevel === 'cluster' || currentZoomLevel === 'file' || d.kind !== 'file') return \`translate(0, \${d.r + 14})\`;
+                    if (currentZoomLevel === 'cluster' || d.kind !== 'file') return \`translate(0, \${d.r + 14})\`;
                     const isDense = d.rowSize > 8;
                     const isStaggered = d.rowSize > 4 && d.rowSize <= 8;
                     if (isDense) {
