@@ -11,6 +11,7 @@ export class GraphPanel {
     private readonly summarizer: Summarizer;
     private latestSummaryFiles: string[] = [];
     private latestSummaries: FileSummary[] | null = null;
+    private _initialized = false;
     private _disposables: vscode.Disposable[] = [];
 
     private constructor(panel: vscode.WebviewPanel, runtime: RepoIntelligenceRuntime) {
@@ -73,7 +74,10 @@ export class GraphPanel {
     }
 
     private async _update() {
-        this._panel.webview.html = this._getHtmlForWebview();
+        if (!this._initialized) {
+            this._panel.webview.html = this._getHtmlForWebview();
+            this._initialized = true;
+        }
 
         try {
             await this.runtime.topologyBuilder.waitUntilReady();
@@ -209,8 +213,10 @@ export class GraphPanel {
         }
 
         header {
-            position: sticky;
+            position: absolute;
             top: 0;
+            left: 0;
+            right: 0;
             background: linear-gradient(to bottom, var(--bg-app) 70%, transparent);
             padding: 24px 28px;
             z-index: 100;
@@ -295,39 +301,31 @@ export class GraphPanel {
 
         .badge { fill: var(--selected); stroke: rgba(255,255,255,0.42); stroke-width: 1; pointer-events: none; }
 
-        .toolbar {
-            position: sticky;
-            left: 0;
-            right: 0;
-            bottom: 0;
-            z-index: 100;
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            gap: 14px;
-            padding: 12px 28px 18px;
-            background: linear-gradient(transparent, rgba(7, 8, 8, 0.95) 30%, #070808 100%);
-            pointer-events: none;
-        }
-
         .toolbar-group { display: flex; align-items: center; gap: 10px; pointer-events: auto; }
 
         button {
             min-height: 40px;
-            border: 1px solid rgba(255,255,255,0.18);
+            border: 1px solid rgba(255, 255, 255, 0.18);
             border-radius: 7px;
             background: rgba(12, 12, 10, 0.9);
             color: var(--text);
-            padding: 8px 16px;
+            padding: 8px 20px;
             font: inherit;
             cursor: pointer;
+            font-size: 13px;
+            letter-spacing: 0.01em;
         }
 
-        button:hover { border-color: rgba(255,255,255,0.36); }
+        button:hover  { border-color: rgba(255, 255, 255, 0.36); }
         button.active { border-color: var(--selected); color: #dceaff; }
         button:disabled { opacity: 0.45; cursor: not-allowed; }
 
-        .selection-count { color: #d8a914; min-width: 96px; font-size: 13px; }
+        .selection-count {
+            color: #d8a914;
+            font-size: 13px;
+            min-width: 80px;
+            text-align: center;
+        }
 
         .summary-panel {
             display: none;
@@ -391,20 +389,7 @@ export class GraphPanel {
             pointer-events: all; /* Catches zoom, pan, and manual hit-tests */
         }
 
-        header {
-            position: absolute;
-            top: 0;
-            left: 0;
-            right: 0;
-            background: linear-gradient(to bottom, var(--bg-app) 70%, transparent);
-            padding: 24px 28px;
-            z-index: 100;
-            pointer-events: none; /* Pass through to zoom capture */
-        }
 
-        header h1, header .meta {
-            pointer-events: auto;
-        }
 
         .toolbar {
             position: absolute;
@@ -416,6 +401,11 @@ export class GraphPanel {
             align-items: center;
             justify-content: space-between;
             gap: 14px;
+            padding: 12px 28px 18px;
+            background: linear-gradient(transparent, rgba(7, 8, 8, 0.95) 30%, #070808 100%);
+            pointer-events: none;
+        }
+
         .empty-state {
             position: absolute;
             top: 50%;
@@ -476,7 +466,7 @@ export class GraphPanel {
                 <div class="toolbar-group">
                     <button id="analyzeButton">Analyze Selection</button>
                     <button id="selectingButton">Selection Mode</button>
-                    <span id="selectionCount" class="selection-status">0 selected</span>
+                    <span id="selectionCount" class="selection-count">0 selected</span>
                 </div>
                 <div class="toolbar-group">
                     <button id="pdfButton">Summary PDF</button>
@@ -497,6 +487,7 @@ export class GraphPanel {
         </section>
     </div>
     <script>
+        const vscode = acquireVsCodeApi();
         const svg = d3.select("#graph");
         const viewport = d3.select("#viewport");
         const linksGroup = d3.select("#links");
@@ -548,7 +539,7 @@ export class GraphPanel {
         function initListeners() {
             document.getElementById('analyzeButton').onclick = () => {
                 const paths = Array.from(selectedFiles);
-                vscode.postMessage({ command: 'analyze', files: paths });
+                vscode.postMessage({ command: 'analyzeFiles', files: paths });
                 document.getElementById('summaryPanel').classList.add('visible');
                 document.getElementById('summaryPanel').scrollIntoView({ behavior: 'smooth' });
                 showSummary('Analyzing...', 'DINO System', 'Synthesizing knowledge from selected files...');
@@ -569,11 +560,11 @@ export class GraphPanel {
             };
 
             document.getElementById('pdfButton').onclick = () => {
-                vscode.postMessage({ command: 'export_pdf', files: Array.from(selectedFiles) });
+                vscode.postMessage({ command: 'generatePdf', files: Array.from(selectedFiles) });
             };
 
             document.getElementById('markdownButton').onclick = () => {
-                vscode.postMessage({ command: 'export_markdown', files: Array.from(selectedFiles) });
+                vscode.postMessage({ command: 'generateMarkdown', files: Array.from(selectedFiles) });
             };
 
             document.getElementById('closeSummary').onclick = () => {
@@ -620,27 +611,7 @@ export class GraphPanel {
             }
         });
 
-        document.getElementById('closeSummary').addEventListener('click', () => {
-            document.getElementById('summaryPanel').style.display = 'none';
-            window.scrollTo(0, 0);
         });
-
-        document.getElementById('selectButton').addEventListener('click', () => {
-            selecting = !selecting;
-            document.getElementById('selectButton').textContent = selecting ? 'Cancel' : 'Selection Mode';
-            document.getElementById('selectButton').classList.toggle('active', selecting);
-            if (!selecting) { selectedFiles.clear(); paintSelection(); }
-            updateControls();
-        });
-
-        document.getElementById('analyzeButton').addEventListener('click', () => {
-            vscode.postMessage({ command: 'analyzeFiles', files: Array.from(selectedFiles) });
-        });
-        document.getElementById('pdfButton').addEventListener('click', () => {
-            vscode.postMessage({ command: 'generatePdf', files: Array.from(selectedFiles) });
-        });
-        document.getElementById('markdownButton').addEventListener('click', () => {
-            vscode.postMessage({ command: 'generateMarkdown', files: Array.from(selectedFiles) });
         });
 
         window.addEventListener('keydown', (e) => {
@@ -911,48 +882,8 @@ export class GraphPanel {
                 vNodeMap.set(n.id, n);
             });
 
-            // Interactive handlers
-            node.on('click', (event, d) => {
-                event.stopPropagation();
-                if (!selecting) selectedFiles.clear();
-                const shouldSelect = d.files.some(f => !selectedFiles.has(f));
-                d.files.forEach(f => shouldSelect ? selectedFiles.add(f) : selectedFiles.delete(f));
-                paintSelection();
-                updateControls();
-            })
-            .on('dblclick', (event, d) => {
-                event.stopPropagation();
-                if (d.kind === 'cluster') {
-                    currentZoomLevel = 'folder';
-                    expandedCluster = d.label;
-                    resetZoom();
-                    buildAndRender();
-                } else if (d.kind === 'file') {
-                    currentZoomLevel = 'file';
-                    focusedFile = d.path || d.files[0];
-                    resetZoom();
-                    buildAndRender();
-                }
-            })
-            .on('mouseover', (event, d) => {
-                const connected = neighbors.get(d.id) || new Set();
-                nodesGroup.selectAll('.node-label')
-                    .attr('opacity', n => (n.id === d.id || connected.has(n.id)) ? 1 : 0.15)
-                    .text(n => getLabelText(n, n.id === d.id || connected.has(n.id)));
-                
-                linksGroup.selectAll('.dependency-edge')
-                    .attr('opacity', l => (l.source === d.id || l.target === d.id) ? 1 : 0.05);
-            })
-            .on('mouseout', () => {
-                nodesGroup.selectAll('.node-label')
-                    .attr('opacity', 1)
-                    .text(n => getLabelText(n, false));
-                linksGroup.selectAll('.dependency-edge').attr('opacity', 0.85);
-            });
-
             currentNodes = vNodes;
-        }
-
+            
             const linkData = vEdges.filter(d => vNodeMap.has(d.source) && vNodeMap.has(d.target));
 
             const neighbors = new Map();
