@@ -527,15 +527,25 @@ The diff engine compares dictionaries and precomputed pending diffs. It should n
 Default view:
 
 - current branch subgraph only
-- not the entire repository
-- top header shows the current branch name
-- the graph renders as a dark, high-contrast file-system forest with restrained glow
-- folder pseudo nodes are created from file paths and act as leaders for their child folders/files
-- folder-to-folder and folder-to-file hierarchy edges are visually distinct from file dependency edges
-- file dependency edges are drawn between files using `graph_struct.edges`
-- selecting a folder pseudo node selects every file inside that folder recursively
-- the graph should be large and separated enough that folder structure and dependency edges can be inspected without collapsing into one dense blob
-- the summary panel is flexible/resizable and sits below the graph so the user can focus on one part at a time
+- top header shows current branch name and interactive breadcrumbs
+- **Advanced Grid Layout**: 
+  - Nodes occupy horizontal bands based on `depth_rank`.
+  - Band heights are calculated dynamically to fit the largest node in that rank.
+  - Rows automatically wrap when exceeding viewport width and remain centered.
+- **Interactive Navigation**:
+  - Full D3 Zoom and Pan supported via mouse and floating UI controls.
+  - Double-click to navigate between Cluster -> Folder -> File levels.
+  - Zoom-aware label visibility to maintain clarity at all scales.
+- **Visual Polish**:
+  - Smart label truncation based on available slot width.
+  - Staggered offsets and diagonal rotations for dense rows.
+  - Native tooltips for full file paths.
+- **Single-Scroll Integration**:
+  - The graph, toolbar, and summary share a single vertical scrollbar.
+  - The summary panel expands dynamically on analysis.
+- **Interaction Guard**:
+  - Background clicks pass through to UI buttons but trigger deselect on the graph.
+  - One-hop view for file focus with an empty-state guard for isolated files.
 
 Branch selector:
 

@@ -485,29 +485,26 @@ Panel behavior:
 
 - open graph panel
 - show current branch name at the top with interactive breadcrumbs (e.g. `Repository > Cluster > File`)
-- **Three Zoom Levels**:
-  - **Level 1 (Cluster)**: Nodes represent clusters. Label = `cluster name (file count)`.
-  - **Level 2 (Folder)**: Double-click a cluster to expand it. Shows folder pseudo-nodes and files. Other clusters remain collapsed.
-  - **Level 3 (File)**: Double-click a file to focus. Shows the file and its one-hop neighbors.
-- **Deterministic Layout**: Nodes are constrained to the Y-axis based on their `depth_rank`. `node.fy = depth_rank * scale`.
-- **Edge Visual Distinction**:
-  - **Hierarchy edges**: color: `#3a3a3a`, width: `1px`, opacity: `0.4`.
-  - **Dependency edges**: color matches target state (`clean`: `#4a9eff`, `modified`: `#f5a623`, `conflict`: `#e74c3c`), width: `1.5px`, opacity: `0.85` (dims to `0.1` for non-adjacent nodes in File focus).
-- folder pseudo nodes act as leaders; selecting a folder selects the files inside that folder recursively
-- keep the visual style close to the reference mosaic but darker, less glowing, higher contrast, and with nodes clearly separated
-- make the graph area and summary panel flexible so the user can focus on either the graph or the generated summary
-- modified nodes appear amber/yellow and show a status halo
-- conflict/error nodes appear red or error-colored
-- clean nodes appear neutral/healthy
-- ignored/untracked nodes appear gray
-- persist the graph structure in `recent/graph_struct.json`
-- clicking a node selects or focuses it; clicking `Analyze` generates the selected file/folder summary in the bottom panel
-- bottom toolbar includes `Select`, `Generate Summary PDF`, and `Generate Markdown File`
-- clicking `Select` enters selection mode, changes cursor behavior for node picking, and changes the button to `Cancel`
-- clicking `Cancel` exits selection mode and clears the selection
-- selected nodes are used as the file set for summary PDF or markdown generation
-- generated PDF/markdown should use the summary currently shown in the bottom panel when available
+- **Navigation and Zoom**:
+  - **D3 Zoom & Pan**: Use mouse wheel to zoom and drag to pan the entire graph view.
+  - **Zoom Controls**: Floating (+, -, ⊙) buttons in the bottom-right for manual zoom and reset.
+  - **Zoom-Aware Labels**: File labels automatically hide when zoomed out to keep the view clean, reappearing as you zoom in.
+  - **Three Zoom Levels**:
+    - **Level 1 (Cluster)**: Nodes represent clusters. Label = `cluster name (file count)`.
+    - **Level 2 (Folder)**: Double-click a cluster to expand it. Shows folder pseudo-nodes and files.
+    - **Level 3 (File)**: Double-click a file to focus. Shows the file and its direct one-hop neighbors.
+- **Advanced Layout Engine**:
+  - **Strict Band-Height**: Nodes are constrained to horizontal bands that dynamically adapt to the largest node in that depth rank.
+  - **Row Wrapping & Centering**: High-density layers (like large folders) automatically wrap into multiple rows and remain perfectly centered.
+  - **Density-Aware Styling**: Labels use staggered offsets or diagonal rotation in dense rows to prevent text overlapping.
+- **Single-Scroll UI**: The entire panel (graph, toolbar, and summary) shares a single vertical scrollbar. The summary panel is hidden by default and expands only when `Analyze` is clicked.
+- **Interaction Rules**:
+  - **Click-Through Background**: The SVG background is non-blocking; buttons and toolbars remain interactive even when the graph overlaps them.
+  - **Background Deselect**: Clicking any empty space in the graph clears the current selection.
+  - **One-Hop Guard**: If a focused file has no neighbors, a clear "Empty View" message is displayed instead of a blank screen.
 - **Esc Key**: Zooms out to the previous level (File -> Folder -> Cluster).
+- **Tooltips**: Native browser tooltips reveal the full file path on hover.
+- **Hover Focus**: Hovering a node highlights its immediate dependencies and fades unrelated nodes.
 
 Dependency detection must be generalized. It should use ES imports/exports when present, but also detect CommonJS `require`, dynamic `import()`, HTML `script/link` references, CSS `@import`, literal references to known repository files, and local symbol usage where one file declares a named function/class/const/interface and another file references that symbol.
 

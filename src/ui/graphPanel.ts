@@ -246,7 +246,17 @@ export class GraphPanel {
         #graph {
             display: block;
             width: 100%;
+            pointer-events: none; /* Let clicks pass through background to buttons */
             /* Height is set dynamically in JS based on maxDepth */
+        }
+
+        #viewport {
+            pointer-events: none;
+        }
+
+        .node-hit { 
+            cursor: pointer; 
+            pointer-events: auto; /* Re-enable for nodes */
         }
 
         .hierarchy-edge {
@@ -496,6 +506,13 @@ export class GraphPanel {
 
         const zoom = d3.zoom()
             .scaleExtent([0.1, 5])
+            .filter(event => {
+                // Only allow zoom/pan when NOT clicking a button or UI element
+                return !event.button && 
+                       !event.target.closest('button') && 
+                       !event.target.closest('.toolbar') &&
+                       !event.target.closest('.zoom-controls');
+            })
             .on('zoom', (event) => {
                 viewport.attr('transform', event.transform);
                 updateLabelVisibility(event.transform.k);
