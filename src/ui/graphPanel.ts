@@ -203,17 +203,17 @@ export class GraphPanel {
         .graph-shell {
             position: relative;
             width: 100%;
-            height: 88vh;
+            min-height: 90vh;
             background: radial-gradient(circle at 50% 46%, rgba(38, 33, 20, 0.26), transparent 42%), #070808;
             border-bottom: 1px solid rgba(255, 255, 255, 0.05);
         }
 
         header {
-            position: absolute;
+            position: sticky;
             top: 0;
             left: 0;
             right: 0;
-            z-index: 5;
+            z-index: 10;
             padding: 20px;
             text-align: center;
             pointer-events: none;
@@ -246,7 +246,7 @@ export class GraphPanel {
         #graph {
             display: block;
             width: 100%;
-            height: 100%;
+            /* Height is set dynamically in JS based on maxDepth */
         }
 
         .hierarchy-edge {
@@ -286,17 +286,17 @@ export class GraphPanel {
         .badge { fill: var(--selected); stroke: rgba(255,255,255,0.42); stroke-width: 1; pointer-events: none; }
 
         .toolbar {
-            position: absolute;
+            position: sticky;
             left: 0;
             right: 0;
             bottom: 0;
-            z-index: 6;
+            z-index: 10;
             display: flex;
             align-items: center;
             justify-content: space-between;
             gap: 14px;
             padding: 12px 28px 18px;
-            background: linear-gradient(transparent, rgba(7, 8, 8, 0.92) 26%, #070808 100%);
+            background: linear-gradient(transparent, rgba(7, 8, 8, 0.95) 30%, #070808 100%);
             pointer-events: none;
         }
 
@@ -522,7 +522,8 @@ export class GraphPanel {
             const graphHeight = Math.max(600, (maxDepth + 1) * 120);
             const graphWidth = document.getElementById('graphShell').clientWidth || 1000;
             
-            svg.attr('viewBox', \`0 0 \${graphWidth} \${graphHeight}\`);
+            svg.attr('viewBox', \`0 0 \${graphWidth} \${graphHeight}\`)
+               .attr('height', graphHeight);
             
             let vNodes = [];
             let vEdges = [];
