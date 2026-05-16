@@ -320,6 +320,11 @@ export class GraphPanel {
         button.active { border-color: var(--selected); color: #dceaff; }
         button:disabled { opacity: 0.45; cursor: not-allowed; }
 
+        .toolbar button,
+        .toolbar .selection-count {
+            pointer-events: all;
+        }
+
         .selection-count {
             color: #d8a914;
             font-size: 13px;
@@ -496,6 +501,7 @@ export class GraphPanel {
         const repoMeta = document.getElementById('repoMeta');
         
         let graph = { nodes: {}, edges: [], branch: 'unknown' };
+        let currentNodes = [];
         let selectedFiles = new Set();
         let selecting = false;
 
@@ -540,7 +546,7 @@ export class GraphPanel {
             document.getElementById('analyzeButton').onclick = () => {
                 const paths = Array.from(selectedFiles);
                 vscode.postMessage({ command: 'analyzeFiles', files: paths });
-                document.getElementById('summaryPanel').classList.add('visible');
+                document.getElementById('summaryPanel').style.display = 'block';
                 document.getElementById('summaryPanel').scrollIntoView({ behavior: 'smooth' });
                 showSummary('Analyzing...', 'DINO System', 'Synthesizing knowledge from selected files...');
             };
@@ -568,7 +574,7 @@ export class GraphPanel {
             };
 
             document.getElementById('closeSummary').onclick = () => {
-                document.getElementById('summaryPanel').classList.remove('visible');
+                document.getElementById('summaryPanel').style.display = 'none';
             };
         }
 
@@ -609,9 +615,6 @@ export class GraphPanel {
             if (message.command === 'error') {
                 showSummary('Error', '', message.message);
             }
-        });
-
-        });
         });
 
         window.addEventListener('keydown', (e) => {
@@ -942,13 +945,16 @@ export class GraphPanel {
                         expandedCluster = d.label;
                         resetZoom();
                         buildAndRender();
-                    } else if (d.kind === 'file' || d.kind === 'folder') {
-                        if (d.kind === 'file') {
-                            currentZoomLevel = 'file';
-                            focusedFile = d.path || d.files[0];
-                            resetZoom();
-                            buildAndRender();
-                        }
+                    } else if (d.kind === 'folder') {
+                        currentZoomLevel = 'file';
+                        focusedFile = d.files[0];
+                        resetZoom();
+                        buildAndRender();
+                    } else if (d.kind === 'file') {
+                        currentZoomLevel = 'file';
+                        focusedFile = d.path || d.files[0];
+                        resetZoom();
+                        buildAndRender();
                     }
                 })
                 .on("click", (event, d) => {
