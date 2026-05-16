@@ -208,6 +208,7 @@ export class GraphPanel {
             position: relative;
             width: 100%;
             min-height: 90vh;
+            padding-bottom: 70px;
             background: radial-gradient(circle at 50% 46%, rgba(38, 33, 20, 0.26), transparent 42%), #070808;
             border-bottom: 1px solid rgba(255, 255, 255, 0.05);
         }
@@ -254,10 +255,7 @@ export class GraphPanel {
             display: block;
             width: 100%;
             pointer-events: auto; /* Required for D3 zoom/pan events */
-        }
-
-        #viewport {
-            pointer-events: none; /* Let clicks pass to nodes below */
+            padding-bottom: 70px;
         }
 
         .node-hit { 
@@ -522,14 +520,13 @@ export class GraphPanel {
         svg.call(zoom);
         svg.on('dblclick.zoom', null);
 
-        // Click outside to deselect
         svg.on('click', (event) => {
-            if (event.target.id === 'graph') {
-                if (!selecting) {
-                    selectedFiles.clear();
-                    paintSelection();
-                    updateControls();
-                }
+            const t = event.target;
+            const isBackground = t.id === 'graph' || t.id === 'viewport' || t.tagName === 'svg';
+            if (isBackground && !selecting) {
+                selectedFiles.clear();
+                paintSelection();
+                updateControls();
             }
         });
 
@@ -871,7 +868,8 @@ export class GraphPanel {
             });
 
             const finalGraphHeight = Math.max(600, currentY + 100);
-            svg.attr('height', finalGraphHeight).attr('viewBox', \`0 0 \${graphWidthActual} \${finalGraphHeight}\`);
+            svg.attr('height', finalGraphHeight).attr('viewBox', `0 0 ${graphWidthActual} ${finalGraphHeight}`);
+            document.getElementById('graphShell').style.minHeight = (finalGraphHeight + 70) + 'px';
 
             if (vNodes.length === 0) {
                 renderEmptyState('Empty View', 'No nodes to display in this level.');
