@@ -648,12 +648,11 @@ export class GraphPanel {
                 });
 
                 (graph.edges || []).forEach(e => {
-                    if (visibleNodes.has(e.from) && visibleNodes.has(e.to)) {
-                        const isPrimary = (e.from === focusedFile || e.to === focusedFile);
+                    if (e.from === focusedFile || e.to === focusedFile) {
                         vEdges.push({ 
                             source: 'file:'+e.from, target: 'file:'+e.to, 
                             kind: 'dependency', state: graph.nodes[e.to]?.health_state || 'clean', 
-                            opacity: isPrimary ? 0.85 : 0.1 
+                            opacity: 0.85 
                         });
                     }
                 });
