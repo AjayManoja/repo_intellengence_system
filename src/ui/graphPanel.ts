@@ -363,6 +363,38 @@ export class GraphPanel {
             background: rgba(231, 76, 60, 0.2);
             border-color: rgba(231, 76, 60, 0.5);
         }
+
+        .zoom-controls {
+            position: absolute;
+            bottom: 80px;
+            right: 28px;
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            z-index: 10;
+            pointer-events: auto;
+        }
+
+        .zoom-controls button {
+            width: 36px;
+            height: 36px;
+            background: rgba(26, 31, 46, 0.9);
+            color: #4a90d9;
+            border: 1px solid #2a3550;
+            border-radius: 6px;
+            font-size: 20px;
+            font-weight: bold;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: background 0.2s;
+        }
+
+        .zoom-controls button:hover {
+            background: #2a3550;
+            color: #fff;
+        }
     </style>
 </head>
 <body>
@@ -372,6 +404,11 @@ export class GraphPanel {
                 <h1 id="breadcrumbs"></h1>
                 <div class="meta"><span id="repoMeta">Loading graph</span></div>
             </header>
+            <div class="zoom-controls">
+                <button id="btnZoomIn" title="Zoom In">+</button>
+                <button id="btnZoomReset" title="Reset Zoom">⊙</button>
+                <button id="btnZoomOut" title="Zoom Out">−</button>
+            </div>
             <svg id="graph" role="img" aria-label="Repository file-system and dependency graph">
                 <defs>
                     <marker id="arrow-clean" viewBox="0 -5 10 10" refX="25" refY="0" markerWidth="6" markerHeight="6" orient="auto">
@@ -387,8 +424,10 @@ export class GraphPanel {
                         <path d="M0,-5L10,0L0,5" fill="var(--muted)" />
                     </marker>
                 </defs>
-                <g id="links"></g>
-                <g id="nodes"></g>
+                <g id="viewport">
+                    <g id="links"></g>
+                    <g id="nodes"></g>
+                </g>
             </svg>
             <div class="toolbar">
                 <div class="toolbar-group">
@@ -415,8 +454,8 @@ export class GraphPanel {
         </section>
     </div>
     <script>
-        const vscode = acquireVsCodeApi();
         const svg = d3.select("#graph");
+        const viewport = d3.select("#viewport");
         const linksGroup = d3.select("#links");
         const nodesGroup = d3.select("#nodes");
         const breadcrumbs = document.getElementById('breadcrumbs');
@@ -430,10 +469,35 @@ export class GraphPanel {
         let expandedCluster = null;
         let focusedFile = null;
 
+        const zoom = d3.zoom()
+            .scaleExtent([0.1, 5])
+            .on('zoom', (event) => {
+                viewport.attr('transform', event.transform);
+                updateLabelVisibility(event.transform.k);
+            });
+
+        svg.call(zoom);
+
+        function updateLabelVisibility(k) {
+            nodesGroup.selectAll('.node-label')
+                .attr('opacity', d => {
+                    if (k < 0.4) return 0;
+                    if (k < 0.8) return (d.kind === 'folder' || d.kind === 'cluster') ? 1 : 0;
+                    return 1;
+                });
+        }
+
+        document.getElementById('btnZoomIn').onclick = () => svg.transition().duration(250).call(zoom.scaleBy, 1.4);
+        document.getElementById('btnZoomOut').onclick = () => svg.transition().duration(250).call(zoom.scaleBy, 0.7);
+        document.getElementById('btnZoomReset').onclick = () => {
+            const width = document.getElementById('graphShell').clientWidth;
+            svg.transition().duration(400).call(zoom.transform, d3.zoomIdentity.translate(0, 0).scale(1));
+        };
+
         let simulation = d3.forceSimulation()
-            .force("link", d3.forceLink().id(d => d.id).distance(60))
-            .force("charge", d3.forceManyBody().strength(-300))
-            .force("collide", d3.forceCollide().radius(d => d.r + 10).iterations(2));
+            .force("link", d3.forceLink().id(d => d.id).distance(80))
+            .force("charge", d3.forceManyBody().strength(-200))
+            .force("collide", d3.forceCollide().radius(d => d.r + 15).iterations(2));
 
         window.addEventListener('message', event => {
             const message = event.data;
@@ -658,19 +722,28 @@ export class GraphPanel {
                 });
             }
 
-            // New Grid Positioning with Wrapping and Centering
+            // Grid Positioning with Band-Height and Centering
             const nodesByDepth = d3.group(vNodes, n => n.fy);
-            const NODE_DIAMETER = 40;
-            const H_GAP = 70;
-            const SLOT_WIDTH = NODE_DIAMETER + H_GAP;
-            const MAX_NODES_PER_ROW = Math.max(1, Math.floor((graphWidth - 60) / SLOT_WIDTH));
-
-            let extraHeightOffset = 0;
             const sortedDepths = Array.from(nodesByDepth.keys()).sort((a,b) => a - b);
+            
+            const BAND_PADDING = 30;
+            const LABEL_HEIGHT = 40;
+            const MIN_NODE_GAP = 20;
+
+            let currentY = 100;
+            const graphWidthActual = Math.max(1000, graphWidth);
 
             sortedDepths.forEach(depthY => {
                 const nodesAtDepth = nodesByDepth.get(depthY);
                 nodesAtDepth.sort((a,b) => a.id.localeCompare(b.id));
+
+                // Calculate max radius in this depth to define band height
+                const maxRadius = Math.max(...nodesAtDepth.map(n => n.r));
+                const bandH = maxRadius * 2 + LABEL_HEIGHT + BAND_PADDING;
+                
+                // Wrapping logic
+                const SLOT_WIDTH_BASE = 80; // approximate
+                const MAX_NODES_PER_ROW = Math.max(1, Math.floor((graphWidthActual - 80) / (maxRadius * 2 + MIN_NODE_GAP)));
 
                 const rows = [];
                 for (let i = 0; i < nodesAtDepth.length; i += MAX_NODES_PER_ROW) {
@@ -678,28 +751,34 @@ export class GraphPanel {
                 }
 
                 rows.forEach((rowNodes, rowIndex) => {
-                    const rowCount = rowNodes.length;
-                    const totalRowWidth = rowCount * NODE_DIAMETER + (rowCount - 1) * H_GAP;
-                    const startX = (graphWidth - totalRowWidth) / 2;
-                    
-                    rowNodes.forEach((node, colIndex) => {
-                        node.x = startX + colIndex * SLOT_WIDTH + NODE_DIAMETER / 2;
-                        node.fy = depthY + extraHeightOffset + rowIndex * 130;
+                    const n = rowNodes.length;
+                    const rowTotalNodeWidth = rowNodes.reduce((sum, node) => sum + node.r * 2, 0);
+                    const totalGaps = (n - 1) * MIN_NODE_GAP;
+                    const totalRequired = rowTotalNodeWidth + totalGaps;
+
+                    // If it fits, center. If not, scale gap down to min 4px
+                    const gap = totalRequired <= (graphWidthActual - 80)
+                        ? MIN_NODE_GAP
+                        : Math.max(4, (graphWidthActual - 80 - rowTotalNodeWidth) / (n - 1));
+
+                    const actualRowWidth = rowTotalNodeWidth + (n - 1) * gap;
+                    let curX = (graphWidthActual - actualRowWidth) / 2;
+
+                    rowNodes.forEach((node, idx) => {
+                        node.x = curX + node.r;
+                        node.fy = currentY + rowIndex * (maxRadius * 2 + LABEL_HEIGHT + 20);
                         node.rowSize = rowNodes.length;
-                        node.indexInRow = colIndex;
+                        node.indexInRow = idx;
                         node.y = node.fy;
+                        curX += node.r * 2 + gap;
                     });
                 });
-                
-                if (rows.length > 1) {
-                    extraHeightOffset += (rows.length - 1) * 130;
-                }
+
+                currentY += rows.length * (maxRadius * 2 + LABEL_HEIGHT + 20) + BAND_PADDING;
             });
 
-            if (extraHeightOffset > 0) {
-                const newHeight = graphHeight + extraHeightOffset;
-                svg.attr('height', newHeight).attr('viewBox', \`0 0 \${graphWidth} \${newHeight}\`);
-            }
+            const finalGraphHeight = Math.max(600, currentY + 100);
+            svg.attr('height', finalGraphHeight).attr('viewBox', \`0 0 \${graphWidthActual} \${finalGraphHeight}\`);
 
             vNodes.forEach(n => {
                 vNodeMap.set(n.id, n);
