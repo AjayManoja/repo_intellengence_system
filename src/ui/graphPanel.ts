@@ -395,11 +395,11 @@ export class GraphPanel {
 
 
         .toolbar {
-            position: absolute;
+            position: fixed;
             left: 0;
             right: 0;
             bottom: 0;
-            z-index: 100;
+            z-index: 1000;
             display: flex;
             align-items: center;
             justify-content: space-between;
@@ -576,6 +576,7 @@ export class GraphPanel {
         }
 
         initListeners();
+        updateControls();
 
         function resetZoom() {
             svg.transition().duration(600).ease(d3.easeCubicInOut).call(zoom.transform, d3.zoomIdentity);
