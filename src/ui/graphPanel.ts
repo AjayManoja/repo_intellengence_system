@@ -395,6 +395,27 @@ export class GraphPanel {
             background: #2a3550;
             color: #fff;
         }
+
+        .empty-state {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            text-align: center;
+            pointer-events: none;
+        }
+
+        .empty-title {
+            font-size: 18px;
+            color: #4a90d9;
+            margin-bottom: 8px;
+            font-weight: bold;
+        }
+
+        .empty-msg {
+            font-size: 14px;
+            color: var(--muted);
+        }
     </style>
 </head>
 <body>
@@ -404,6 +425,10 @@ export class GraphPanel {
                 <h1 id="breadcrumbs"></h1>
                 <div class="meta"><span id="repoMeta">Loading graph</span></div>
             </header>
+            <div id="emptyState" class="empty-state" style="display: none;">
+                <p id="emptyTitle" class="empty-title"></p>
+                <p id="emptyMsg" class="empty-msg"></p>
+            </div>
             <div class="zoom-controls">
                 <button id="btnZoomIn" title="Zoom In">+</button>
                 <button id="btnZoomReset" title="Reset Zoom">⊙</button>
@@ -498,9 +523,12 @@ export class GraphPanel {
         document.getElementById('btnZoomIn').onclick = () => svg.transition().duration(250).call(zoom.scaleBy, 1.4);
         document.getElementById('btnZoomOut').onclick = () => svg.transition().duration(250).call(zoom.scaleBy, 0.7);
         document.getElementById('btnZoomReset').onclick = () => {
-            const width = document.getElementById('graphShell').clientWidth;
-            svg.transition().duration(400).call(zoom.transform, d3.zoomIdentity.translate(0, 0).scale(1));
+            resetZoom();
         };
+
+        function resetZoom() {
+            svg.transition().duration(400).call(zoom.transform, d3.zoomIdentity.translate(0, 0).scale(1));
+        }
 
         let simulation = d3.forceSimulation()
             .force("link", d3.forceLink().id(d => d.id).distance(80))
@@ -576,6 +604,19 @@ export class GraphPanel {
             document.getElementById('summaryTitle').textContent = title;
             document.getElementById('summaryProvider').textContent = provider;
             document.getElementById('summaryBody').textContent = body || 'Working...';
+        }
+
+        function renderEmptyState(title, message) {
+            const el = document.getElementById('emptyState');
+            if (title) {
+                document.getElementById('emptyTitle').textContent = title;
+                document.getElementById('emptyMsg').textContent = message;
+                el.style.display = 'block';
+                svg.style('opacity', 0.2);
+            } else {
+                el.style.display = 'none';
+                svg.style('opacity', 1);
+            }
         }
 
         function updateControls() {
@@ -788,6 +829,14 @@ export class GraphPanel {
             const finalGraphHeight = Math.max(600, currentY + 100);
             svg.attr('height', finalGraphHeight).attr('viewBox', \`0 0 \${graphWidthActual} \${finalGraphHeight}\`);
 
+            if (vNodes.length === 0) {
+                renderEmptyState('Empty View', 'No nodes to display in this level.');
+            } else if (currentZoomLevel === 'file' && vNodes.length === 1 && vEdges.length === 0) {
+                renderEmptyState(focusedFile.split('/').pop(), 'No internal structure or dependencies found for this file.');
+            } else {
+                renderEmptyState(null);
+            }
+
             vNodes.forEach(n => {
                 vNodeMap.set(n.id, n);
             });
@@ -848,11 +897,13 @@ export class GraphPanel {
                     if (d.kind === 'cluster') {
                         currentZoomLevel = 'folder';
                         expandedCluster = d.label;
+                        resetZoom();
                         buildAndRender();
                     } else if (d.kind === 'file' || d.kind === 'folder') {
                         if (d.kind === 'file') {
                             currentZoomLevel = 'file';
                             focusedFile = d.path || d.files[0];
+                            resetZoom();
                             buildAndRender();
                         }
                     }
@@ -944,6 +995,7 @@ export class GraphPanel {
         window.zoomTo = function(level) {
             if (level === 'cluster') { currentZoomLevel = 'cluster'; expandedCluster = null; focusedFile = null; }
             if (level === 'folder' && currentZoomLevel === 'file') { currentZoomLevel = 'folder'; focusedFile = null; }
+            resetZoom();
             buildAndRender();
         }
 
