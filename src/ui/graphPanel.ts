@@ -374,14 +374,54 @@ export class GraphPanel {
             border-color: rgba(231, 76, 60, 0.5);
         }
 
-        .zoom-controls {
+        .graph-layer {
             position: absolute;
-            bottom: 80px;
-            right: 28px;
-            display: flex;
-            flex-direction: column;
-            gap: 6px;
+            inset: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 1;
+            pointer-events: none; /* Let background clicks through */
+        }
+
+        .zoom-capture {
+            position: absolute;
+            inset: 0;
+            z-index: 2;
+            background: transparent;
+            pointer-events: all; /* Catches zoom, pan, and manual hit-tests */
+        }
+
+        header {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            background: linear-gradient(to bottom, var(--bg-app) 70%, transparent);
+            padding: 24px 28px;
             z-index: 100;
+            pointer-events: none; /* Pass through to zoom capture */
+        }
+
+        header h1, header .meta {
+            pointer-events: auto;
+        }
+
+        .toolbar {
+            position: absolute;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            z-index: 100;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 14px;
+            padding: 12px 28px 18px;
+            background: linear-gradient(transparent, rgba(7, 8, 8, 0.95) 30%, #070808 100%);
+            pointer-events: none;
+        }
+
+        .toolbar-group, .selection-status {
             pointer-events: auto;
         }
 
@@ -435,16 +475,9 @@ export class GraphPanel {
                 <h1 id="breadcrumbs"></h1>
                 <div class="meta"><span id="repoMeta">Loading graph</span></div>
             </header>
-            <div id="emptyState" class="empty-state" style="display: none;">
-                <p id="emptyTitle" class="empty-title"></p>
-                <p id="emptyMsg" class="empty-msg"></p>
-            </div>
-            <div class="zoom-controls">
-                <button id="btnZoomIn" title="Zoom In">+</button>
-                <button id="btnZoomReset" title="Reset Zoom">⊙</button>
-                <button id="btnZoomOut" title="Zoom Out">−</button>
-            </div>
-            <svg id="graph" role="img" aria-label="Repository file-system and dependency graph">
+
+            <!-- Layer 1: Graph SVG -->
+            <svg id="graph" class="graph-layer" role="img" aria-label="Repository file-system and dependency graph">
                 <defs>
                     <marker id="arrow-clean" viewBox="0 -5 10 10" refX="25" refY="0" markerWidth="6" markerHeight="6" orient="auto">
                         <path d="M0,-5L10,0L0,5" fill="var(--edge-dep-clean)" />
@@ -464,13 +497,29 @@ export class GraphPanel {
                     <g id="nodes"></g>
                 </g>
             </svg>
+
+            <!-- Layer 2: Zoom Capture -->
+            <div id="zoomCapture" class="zoom-capture"></div>
+
+            <!-- Layer 3: UI Overlays -->
+            <div id="emptyState" class="empty-state" style="display: none;">
+                <p id="emptyTitle" class="empty-title"></p>
+                <p id="emptyMsg" class="empty-msg"></p>
+            </div>
+
+            <div class="zoom-controls">
+                <button id="btnZoomIn" title="Zoom In">+</button>
+                <button id="btnZoomReset" title="Reset Zoom">⊙</button>
+                <button id="btnZoomOut" title="Zoom Out">−</button>
+            </div>
+
             <div class="toolbar">
                 <div class="toolbar-group">
                     <button id="analyzeButton">Analyze Selection</button>
+                    <button id="selectingButton">Selection Mode</button>
+                    <span id="selectionCount" class="selection-status">0 selected</span>
                 </div>
                 <div class="toolbar-group">
-                    <button id="selectButton">Selection Mode</button>
-                    <span id="selectionCount" class="selection-count">0 selected</span>
                     <button id="pdfButton">Summary PDF</button>
                     <button id="markdownButton">Markdown Context</button>
                 </div>
@@ -491,14 +540,17 @@ export class GraphPanel {
     <script>
         const svg = d3.select("#graph");
         const viewport = d3.select("#viewport");
+        const capture = d3.select("#zoomCapture");
         const linksGroup = d3.select("#links");
         const nodesGroup = d3.select("#nodes");
         const breadcrumbs = document.getElementById('breadcrumbs');
         const repoMeta = document.getElementById('repoMeta');
         
         let graph = { nodes: {}, edges: [], branch: 'unknown' };
+        let currentNodes = [];
         let selectedFiles = new Set();
         let selecting = false;
+        let nodeHitAreas = new Map();
 
         let currentZoomLevel = 'cluster'; // cluster | folder | file
         let expandedCluster = null;
@@ -507,7 +559,6 @@ export class GraphPanel {
         const zoom = d3.zoom()
             .scaleExtent([0.1, 5])
             .filter(event => {
-                // Only allow zoom/pan when NOT clicking a button or UI element
                 return !event.button && 
                        !event.target.closest('button') && 
                        !event.target.closest('.toolbar') &&
@@ -515,18 +566,83 @@ export class GraphPanel {
             })
             .on('zoom', (event) => {
                 viewport.attr('transform', event.transform);
+                updateHitAreas(event.transform);
                 updateLabelVisibility(event.transform.k);
             });
 
-        svg.call(zoom);
-        svg.on('dblclick.zoom', null);
-        svg.on('click', () => {
-            if (!selecting) {
+        capture.call(zoom);
+        capture.on('dblclick.zoom', null);
+
+        function updateHitAreas(transform) {
+            nodeHitAreas.clear();
+            currentNodes.forEach(node => {
+                const sx = transform.applyX(node.x);
+                const sy = transform.applyY(node.y);
+                const sr = node.r * transform.k;
+                nodeHitAreas.set(node.id, { x: sx, y: sy, r: sr, data: node });
+            });
+        }
+
+        function hitTest(mx, my) {
+            let hit = null;
+            nodeHitAreas.forEach(area => {
+                const dist = Math.hypot(mx - area.x, my - area.y);
+                if (dist <= area.r + 5) hit = area.data;
+            });
+            return hit;
+        }
+
+        capture.on('click', (event) => {
+            const [mx, my] = d3.pointer(event);
+            const hit = hitTest(mx, my);
+            if (hit) {
+                handleNodeClick(hit);
+            } else {
                 selectedFiles.clear();
                 paintSelection();
                 updateControls();
             }
         });
+
+        capture.on('dblclick', (event) => {
+            const [mx, my] = d3.pointer(event);
+            const hit = hitTest(mx, my);
+            if (hit) handleNodeDblClick(hit);
+        });
+
+        capture.on('mousemove', (event) => {
+            const [mx, my] = d3.pointer(event);
+            const hit = hitTest(mx, my);
+            if (hit) {
+                handleNodeMouseOver(hit);
+            } else {
+                handleNodeMouseOut();
+            }
+        });
+
+        function handleNodeClick(d) {
+            if (!selecting) selectedFiles.clear();
+            const shouldSelect = d.files.some(file => !selectedFiles.has(file));
+            d.files.forEach(file => shouldSelect ? selectedFiles.add(file) : selectedFiles.delete(file));
+            paintSelection();
+            updateControls();
+        }
+
+        function handleNodeDblClick(d) {
+            if (d.kind === 'cluster') {
+                currentZoomLevel = 'folder';
+                expandedCluster = d.label;
+                resetZoom();
+                buildAndRender();
+            } else if (d.kind === 'file' || d.kind === 'folder') {
+                if (d.kind === 'file') {
+                    currentZoomLevel = 'file';
+                    focusedFile = d.path || d.files[0];
+                    resetZoom();
+                    buildAndRender();
+                }
+            }
+        }
 
         function updateLabelVisibility(k) {
             nodesGroup.selectAll('.node-label')
@@ -537,14 +653,46 @@ export class GraphPanel {
                 });
         }
 
-        document.getElementById('btnZoomIn').onclick = () => svg.transition().duration(250).call(zoom.scaleBy, 1.4);
-        document.getElementById('btnZoomOut').onclick = () => svg.transition().duration(250).call(zoom.scaleBy, 0.7);
-        document.getElementById('btnZoomReset').onclick = () => {
-            resetZoom();
-        };
+        function initListeners() {
+            document.getElementById('btnZoomIn').onclick = () => capture.transition().duration(250).call(zoom.scaleBy, 1.4);
+            document.getElementById('btnZoomOut').onclick = () => capture.transition().duration(250).call(zoom.scaleBy, 0.7);
+            document.getElementById('btnZoomReset').onclick = () => resetZoom();
+
+            document.getElementById('analyzeButton').onclick = () => {
+                const paths = Array.from(selectedFiles);
+                vscode.postMessage({ command: 'analyze', files: paths });
+                document.getElementById('summaryPanel').classList.add('visible');
+                document.getElementById('summaryPanel').scrollIntoView({ behavior: 'smooth' });
+                showSummary('Analyzing...', 'DINO System', 'Synthesizing knowledge from selected files...');
+            };
+
+            document.getElementById('selectingButton').onclick = () => {
+                selecting = !selecting;
+                document.getElementById('selectingButton').textContent = selecting ? 'Cancel Selection' : 'Selection Mode';
+                if (!selecting) {
+                    selectedFiles.clear();
+                    paintSelection();
+                    updateControls();
+                }
+            };
+
+            document.getElementById('pdfButton').onclick = () => {
+                vscode.postMessage({ command: 'export_pdf', files: Array.from(selectedFiles) });
+            };
+
+            document.getElementById('markdownButton').onclick = () => {
+                vscode.postMessage({ command: 'export_markdown', files: Array.from(selectedFiles) });
+            };
+
+            document.getElementById('closeSummary').onclick = () => {
+                document.getElementById('summaryPanel').classList.remove('visible');
+            };
+        }
+
+        initListeners();
 
         function resetZoom() {
-            svg.transition().duration(400).call(zoom.transform, d3.zoomIdentity.translate(0, 0).scale(1));
+            capture.transition().duration(400).call(zoom.transform, d3.zoomIdentity.translate(0, 0).scale(1));
         }
 
         let simulation = d3.forceSimulation()
@@ -642,6 +790,19 @@ export class GraphPanel {
             document.getElementById('analyzeButton').disabled = disable;
             document.getElementById('pdfButton').disabled = disable;
             document.getElementById('markdownButton').disabled = disable;
+        }
+
+        function handleNodeMouseOver(d) {
+            const connected = neighbors.get(d.id) || new Set();
+            nodesGroup.selectAll('.node-label')
+                .attr('opacity', n => (n.id === d.id || connected.has(n.id)) ? 1 : 0.15)
+                .text(n => getLabelText(n, n.id === d.id || connected.has(n.id)));
+        }
+
+        function handleNodeMouseOut() {
+            nodesGroup.selectAll('.node-label')
+                .attr('opacity', 1)
+                .text(n => getLabelText(n, false));
         }
 
         function buildAndRender() {
@@ -857,6 +1018,9 @@ export class GraphPanel {
             vNodes.forEach(n => {
                 vNodeMap.set(n.id, n);
             });
+
+            currentNodes = vNodes;
+            updateHitAreas(d3.zoomTransform(capture.node()));
 
             const linkData = vEdges.filter(d => vNodeMap.has(d.source) && vNodeMap.has(d.target));
 
