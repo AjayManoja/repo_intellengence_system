@@ -186,34 +186,35 @@ export class GraphPanel {
         * { box-sizing: border-box; }
         body {
             margin: 0;
-            height: 100vh;
-            overflow: hidden;
+            min-height: 100vh;
+            overflow-x: hidden;
+            overflow-y: auto;
             color: var(--text);
             background: var(--bg);
             font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+            scroll-behavior: smooth;
         }
 
         .app {
-            display: flex;
-            flex-direction: column;
-            height: 100vh;
-            min-width: 0;
+            display: block;
+            width: 100%;
         }
 
         .graph-shell {
             position: relative;
-            flex: 1 1 auto;
-            min-height: 310px;
-            overflow: auto;
+            width: 100%;
+            height: 88vh;
             background: radial-gradient(circle at 50% 46%, rgba(38, 33, 20, 0.26), transparent 42%), #070808;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
         }
 
         header {
-            position: sticky;
+            position: absolute;
             top: 0;
+            left: 0;
+            right: 0;
             z-index: 5;
-            height: 72px;
-            padding-top: 14px;
+            padding: 20px;
             text-align: center;
             pointer-events: none;
             background: linear-gradient(#070808 0%, rgba(7, 8, 8, 0.86) 70%, transparent 100%);
@@ -244,8 +245,8 @@ export class GraphPanel {
 
         #graph {
             display: block;
-            min-width: 100%;
-            min-height: 100%;
+            width: 100%;
+            height: 100%;
         }
 
         .hierarchy-edge {
@@ -285,20 +286,21 @@ export class GraphPanel {
         .badge { fill: var(--selected); stroke: rgba(255,255,255,0.42); stroke-width: 1; pointer-events: none; }
 
         .toolbar {
-            position: sticky;
+            position: absolute;
             left: 0;
+            right: 0;
             bottom: 0;
             z-index: 6;
             display: flex;
             align-items: center;
             justify-content: space-between;
             gap: 14px;
-            min-width: max-content;
             padding: 12px 28px 18px;
             background: linear-gradient(transparent, rgba(7, 8, 8, 0.92) 26%, #070808 100%);
+            pointer-events: none;
         }
 
-        .toolbar-group { display: flex; align-items: center; gap: 10px; }
+        .toolbar-group { display: flex; align-items: center; gap: 10px; pointer-events: auto; }
 
         button {
             min-height: 40px;
@@ -318,27 +320,49 @@ export class GraphPanel {
         .selection-count { color: #d8a914; min-width: 96px; font-size: 13px; }
 
         .summary-panel {
-            flex: 0 0 34vh;
-            min-height: 150px;
-            max-height: 68vh;
-            resize: vertical;
-            overflow: auto;
+            display: none;
+            width: 100%;
             border-top: 1px solid var(--panel-border);
             background: linear-gradient(90deg, rgba(30, 25, 7, 0.86), #080908 38%);
-            padding: 20px;
+            padding: 40px 20px;
+        }
+
+        .summary-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 24px;
+            max-width: 1200px;
+            margin-left: auto;
+            margin-right: auto;
         }
 
         .summary-card {
-            min-height: 100%;
+            max-width: 1200px;
+            margin: 0 auto;
             border: 1px solid var(--panel-border);
-            border-radius: 8px;
-            padding: 20px 22px;
+            border-radius: 12px;
+            padding: 30px;
             background: rgba(9, 10, 9, 0.82);
+            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
         }
 
-        .summary-title { margin: 0 0 14px; color: #fff8e7; font-size: 22px; line-height: 1.32; overflow-wrap: anywhere; }
-        .summary-provider { color: var(--muted); font-size: 13px; margin-bottom: 20px; }
-        .summary-body { color: #c2bdb2; white-space: pre-wrap; line-height: 1.7; font-size: 13px; }
+        .summary-title { margin: 0 0 10px; color: #fff8e7; font-size: 26px; line-height: 1.2; overflow-wrap: anywhere; }
+        .summary-provider { color: var(--muted); font-size: 14px; margin-bottom: 30px; border-bottom: 1px solid rgba(255,255,255,0.05); padding-bottom: 15px; }
+        .summary-body { color: #c2bdb2; white-space: pre-wrap; line-height: 1.8; font-size: 14px; }
+
+        .close-summary {
+            padding: 6px 12px;
+            font-size: 12px;
+            min-height: 30px;
+            background: rgba(231, 76, 60, 0.1);
+            border-color: rgba(231, 76, 60, 0.3);
+            color: #ff9999;
+        }
+        .close-summary:hover {
+            background: rgba(231, 76, 60, 0.2);
+            border-color: rgba(231, 76, 60, 0.5);
+        }
     </style>
 </head>
 <body>
@@ -368,21 +392,25 @@ export class GraphPanel {
             </svg>
             <div class="toolbar">
                 <div class="toolbar-group">
-                    <button id="analyzeButton">Analyze</button>
+                    <button id="analyzeButton">Analyze Selection</button>
                 </div>
                 <div class="toolbar-group">
-                    <button id="selectButton">Select</button>
+                    <button id="selectButton">Selection Mode</button>
                     <span id="selectionCount" class="selection-count">0 selected</span>
-                    <button id="pdfButton">Generate Summary PDF</button>
-                    <button id="markdownButton">Generate Markdown File</button>
+                    <button id="pdfButton">Summary PDF</button>
+                    <button id="markdownButton">Markdown Context</button>
                 </div>
             </div>
         </main>
-        <section class="summary-panel">
+        <section class="summary-panel" id="summaryPanel">
+            <div class="summary-header">
+                <span style="color: var(--muted); font-size: 12px; letter-spacing: 1px; text-transform: uppercase;">Analysis Report</span>
+                <button class="close-summary" id="closeSummary">Close Report</button>
+            </div>
             <div class="summary-card">
-                <h2 id="summaryTitle" class="summary-title">No summary yet</h2>
-                <div id="summaryProvider" class="summary-provider">Double-click nodes to drill down. Select nodes, then click Analyze.</div>
-                <div id="summaryBody" class="summary-body">Cluster and Folder nodes select every file inside them. Press Escape to zoom out.</div>
+                <h2 id="summaryTitle" class="summary-title">Analyzing...</h2>
+                <div id="summaryProvider" class="summary-provider">Connecting to models...</div>
+                <div id="summaryBody" class="summary-body"></div>
             </div>
         </section>
     </div>
@@ -413,16 +441,36 @@ export class GraphPanel {
                 graph = message.data;
                 buildAndRender();
             }
-            if (message.command === 'summaryLoading') showSummary('Analyzing selection', 'Working...', '');
-            if (message.command === 'combinedSummary') showSummary(message.title, message.provider, message.summary);
-            if (message.command === 'exportLoading') document.getElementById('summaryProvider').textContent = 'Generating...';
-            if (message.command === 'exportReady') showSummary('Generated ' + message.exportType, message.path, message.summary || '');
-            if (message.command === 'error') showSummary('Error', '', message.message);
+            if (message.command === 'summaryLoading') {
+                showSummary('Analyzing selection', 'Working...', '');
+                document.getElementById('summaryPanel').style.display = 'block';
+                window.scrollTo(0, document.body.scrollHeight);
+            }
+            if (message.command === 'combinedSummary') {
+                showSummary(message.title, message.provider, message.summary);
+                window.scrollTo(0, document.body.scrollHeight);
+            }
+            if (message.command === 'exportLoading') {
+                document.getElementById('summaryProvider').textContent = 'Generating...';
+                document.getElementById('summaryPanel').style.display = 'block';
+                window.scrollTo(0, document.body.scrollHeight);
+            }
+            if (message.command === 'exportReady') {
+                showSummary('Generated ' + message.exportType, message.path, message.summary || '');
+            }
+            if (message.command === 'error') {
+                showSummary('Error', '', message.message);
+            }
+        });
+
+        document.getElementById('closeSummary').addEventListener('click', () => {
+            document.getElementById('summaryPanel').style.display = 'none';
+            window.scrollTo(0, 0);
         });
 
         document.getElementById('selectButton').addEventListener('click', () => {
             selecting = !selecting;
-            document.getElementById('selectButton').textContent = selecting ? 'Cancel' : 'Select';
+            document.getElementById('selectButton').textContent = selecting ? 'Cancel' : 'Selection Mode';
             document.getElementById('selectButton').classList.toggle('active', selecting);
             if (!selecting) { selectedFiles.clear(); paintSelection(); }
             updateControls();
