@@ -416,36 +416,6 @@ export class GraphPanel {
             align-items: center;
             justify-content: space-between;
             gap: 14px;
-            padding: 12px 28px 18px;
-            background: linear-gradient(transparent, rgba(7, 8, 8, 0.95) 30%, #070808 100%);
-            pointer-events: none;
-        }
-
-        .toolbar-group, .selection-status {
-            pointer-events: auto;
-        }
-
-        .zoom-controls button {
-            width: 36px;
-            height: 36px;
-            background: rgba(26, 31, 46, 0.9);
-            color: #4a90d9;
-            border: 1px solid #2a3550;
-            border-radius: 6px;
-            font-size: 20px;
-            font-weight: bold;
-            cursor: pointer;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            transition: background 0.2s;
-        }
-
-        .zoom-controls button:hover {
-            background: #2a3550;
-            color: #fff;
-        }
-
         .empty-state {
             position: absolute;
             top: 50%;
@@ -476,8 +446,7 @@ export class GraphPanel {
                 <div class="meta"><span id="repoMeta">Loading graph</span></div>
             </header>
 
-            <!-- Layer 1: Graph SVG -->
-            <svg id="graph" class="graph-layer" role="img" aria-label="Repository file-system and dependency graph">
+            <svg id="graph" role="img" aria-label="Repository file-system and dependency graph">
                 <defs>
                     <marker id="arrow-clean" viewBox="0 -5 10 10" refX="25" refY="0" markerWidth="6" markerHeight="6" orient="auto">
                         <path d="M0,-5L10,0L0,5" fill="var(--edge-dep-clean)" />
@@ -498,19 +467,9 @@ export class GraphPanel {
                 </g>
             </svg>
 
-            <!-- Layer 2: Zoom Capture -->
-            <div id="zoomCapture" class="zoom-capture"></div>
-
-            <!-- Layer 3: UI Overlays -->
             <div id="emptyState" class="empty-state" style="display: none;">
                 <p id="emptyTitle" class="empty-title"></p>
                 <p id="emptyMsg" class="empty-msg"></p>
-            </div>
-
-            <div class="zoom-controls">
-                <button id="btnZoomIn" title="Zoom In">+</button>
-                <button id="btnZoomReset" title="Reset Zoom">⊙</button>
-                <button id="btnZoomOut" title="Zoom Out">−</button>
             </div>
 
             <div class="toolbar">
@@ -540,17 +499,14 @@ export class GraphPanel {
     <script>
         const svg = d3.select("#graph");
         const viewport = d3.select("#viewport");
-        const capture = d3.select("#zoomCapture");
         const linksGroup = d3.select("#links");
         const nodesGroup = d3.select("#nodes");
         const breadcrumbs = document.getElementById('breadcrumbs');
         const repoMeta = document.getElementById('repoMeta');
         
         let graph = { nodes: {}, edges: [], branch: 'unknown' };
-        let currentNodes = [];
         let selectedFiles = new Set();
         let selecting = false;
-        let nodeHitAreas = new Map();
 
         let currentZoomLevel = 'cluster'; // cluster | folder | file
         let expandedCluster = null;
@@ -559,90 +515,26 @@ export class GraphPanel {
         const zoom = d3.zoom()
             .scaleExtent([0.1, 5])
             .filter(event => {
-                return !event.button && 
-                       !event.target.closest('button') && 
-                       !event.target.closest('.toolbar') &&
-                       !event.target.closest('.zoom-controls');
+                return !event.button && !event.target.closest('button') && !event.target.closest('.toolbar');
             })
             .on('zoom', (event) => {
                 viewport.attr('transform', event.transform);
-                updateHitAreas(event.transform);
                 updateLabelVisibility(event.transform.k);
             });
 
-        capture.call(zoom);
-        capture.on('dblclick.zoom', null);
+        svg.call(zoom);
+        svg.on('dblclick.zoom', null);
 
-        function updateHitAreas(transform) {
-            nodeHitAreas.clear();
-            currentNodes.forEach(node => {
-                const sx = transform.applyX(node.x);
-                const sy = transform.applyY(node.y);
-                const sr = node.r * transform.k;
-                nodeHitAreas.set(node.id, { x: sx, y: sy, r: sr, data: node });
-            });
-        }
-
-        function hitTest(mx, my) {
-            let hit = null;
-            nodeHitAreas.forEach(area => {
-                const dist = Math.hypot(mx - area.x, my - area.y);
-                if (dist <= area.r + 5) hit = area.data;
-            });
-            return hit;
-        }
-
-        capture.on('click', (event) => {
-            const [mx, my] = d3.pointer(event);
-            const hit = hitTest(mx, my);
-            if (hit) {
-                handleNodeClick(hit);
-            } else {
-                selectedFiles.clear();
-                paintSelection();
-                updateControls();
-            }
-        });
-
-        capture.on('dblclick', (event) => {
-            const [mx, my] = d3.pointer(event);
-            const hit = hitTest(mx, my);
-            if (hit) handleNodeDblClick(hit);
-        });
-
-        capture.on('mousemove', (event) => {
-            const [mx, my] = d3.pointer(event);
-            const hit = hitTest(mx, my);
-            if (hit) {
-                handleNodeMouseOver(hit);
-            } else {
-                handleNodeMouseOut();
-            }
-        });
-
-        function handleNodeClick(d) {
-            if (!selecting) selectedFiles.clear();
-            const shouldSelect = d.files.some(file => !selectedFiles.has(file));
-            d.files.forEach(file => shouldSelect ? selectedFiles.add(file) : selectedFiles.delete(file));
-            paintSelection();
-            updateControls();
-        }
-
-        function handleNodeDblClick(d) {
-            if (d.kind === 'cluster') {
-                currentZoomLevel = 'folder';
-                expandedCluster = d.label;
-                resetZoom();
-                buildAndRender();
-            } else if (d.kind === 'file' || d.kind === 'folder') {
-                if (d.kind === 'file') {
-                    currentZoomLevel = 'file';
-                    focusedFile = d.path || d.files[0];
-                    resetZoom();
-                    buildAndRender();
+        // Click outside to deselect
+        svg.on('click', (event) => {
+            if (event.target.id === 'graph') {
+                if (!selecting) {
+                    selectedFiles.clear();
+                    paintSelection();
+                    updateControls();
                 }
             }
-        }
+        });
 
         function updateLabelVisibility(k) {
             nodesGroup.selectAll('.node-label')
@@ -654,10 +546,6 @@ export class GraphPanel {
         }
 
         function initListeners() {
-            document.getElementById('btnZoomIn').onclick = () => capture.transition().duration(250).call(zoom.scaleBy, 1.4);
-            document.getElementById('btnZoomOut').onclick = () => capture.transition().duration(250).call(zoom.scaleBy, 0.7);
-            document.getElementById('btnZoomReset').onclick = () => resetZoom();
-
             document.getElementById('analyzeButton').onclick = () => {
                 const paths = Array.from(selectedFiles);
                 vscode.postMessage({ command: 'analyze', files: paths });
@@ -668,7 +556,11 @@ export class GraphPanel {
 
             document.getElementById('selectingButton').onclick = () => {
                 selecting = !selecting;
-                document.getElementById('selectingButton').textContent = selecting ? 'Cancel Selection' : 'Selection Mode';
+                const btn = document.getElementById('selectingButton');
+                btn.textContent = selecting ? 'Cancel' : 'Selection Mode';
+                if (selecting) btn.classList.add('active');
+                else btn.classList.remove('active');
+
                 if (!selecting) {
                     selectedFiles.clear();
                     paintSelection();
@@ -692,7 +584,7 @@ export class GraphPanel {
         initListeners();
 
         function resetZoom() {
-            capture.transition().duration(400).call(zoom.transform, d3.zoomIdentity.translate(0, 0).scale(1));
+            svg.transition().duration(600).ease(d3.easeCubicInOut).call(zoom.transform, d3.zoomIdentity);
         }
 
         let simulation = d3.forceSimulation()
@@ -1019,8 +911,47 @@ export class GraphPanel {
                 vNodeMap.set(n.id, n);
             });
 
+            // Interactive handlers
+            node.on('click', (event, d) => {
+                event.stopPropagation();
+                if (!selecting) selectedFiles.clear();
+                const shouldSelect = d.files.some(f => !selectedFiles.has(f));
+                d.files.forEach(f => shouldSelect ? selectedFiles.add(f) : selectedFiles.delete(f));
+                paintSelection();
+                updateControls();
+            })
+            .on('dblclick', (event, d) => {
+                event.stopPropagation();
+                if (d.kind === 'cluster') {
+                    currentZoomLevel = 'folder';
+                    expandedCluster = d.label;
+                    resetZoom();
+                    buildAndRender();
+                } else if (d.kind === 'file') {
+                    currentZoomLevel = 'file';
+                    focusedFile = d.path || d.files[0];
+                    resetZoom();
+                    buildAndRender();
+                }
+            })
+            .on('mouseover', (event, d) => {
+                const connected = neighbors.get(d.id) || new Set();
+                nodesGroup.selectAll('.node-label')
+                    .attr('opacity', n => (n.id === d.id || connected.has(n.id)) ? 1 : 0.15)
+                    .text(n => getLabelText(n, n.id === d.id || connected.has(n.id)));
+                
+                linksGroup.selectAll('.dependency-edge')
+                    .attr('opacity', l => (l.source === d.id || l.target === d.id) ? 1 : 0.05);
+            })
+            .on('mouseout', () => {
+                nodesGroup.selectAll('.node-label')
+                    .attr('opacity', 1)
+                    .text(n => getLabelText(n, false));
+                linksGroup.selectAll('.dependency-edge').attr('opacity', 0.85);
+            });
+
             currentNodes = vNodes;
-            updateHitAreas(d3.zoomTransform(capture.node()));
+        }
 
             const linkData = vEdges.filter(d => vNodeMap.has(d.source) && vNodeMap.has(d.target));
 
