@@ -211,13 +211,14 @@ export class GraphPanel {
         header {
             position: sticky;
             top: 0;
-            left: 0;
-            right: 0;
-            z-index: 10;
-            padding: 20px;
-            text-align: center;
-            pointer-events: none;
-            background: linear-gradient(#070808 0%, rgba(7, 8, 8, 0.86) 70%, transparent 100%);
+            background: linear-gradient(to bottom, var(--bg-app) 70%, transparent);
+            padding: 24px 28px;
+            z-index: 100;
+            pointer-events: none; /* Pass through to graph */
+        }
+
+        header h1, header .meta {
+            pointer-events: auto; /* Enable for text/breadcrumbs */
         }
 
         h1 {
@@ -246,17 +247,16 @@ export class GraphPanel {
         #graph {
             display: block;
             width: 100%;
-            pointer-events: none; /* Let clicks pass through background to buttons */
-            /* Height is set dynamically in JS based on maxDepth */
+            pointer-events: auto; /* Required for D3 zoom/pan events */
         }
 
         #viewport {
-            pointer-events: none;
+            pointer-events: none; /* Let clicks pass to nodes below */
         }
 
         .node-hit { 
             cursor: pointer; 
-            pointer-events: auto; /* Re-enable for nodes */
+            pointer-events: auto; 
         }
 
         .hierarchy-edge {
@@ -300,7 +300,7 @@ export class GraphPanel {
             left: 0;
             right: 0;
             bottom: 0;
-            z-index: 10;
+            z-index: 100;
             display: flex;
             align-items: center;
             justify-content: space-between;
@@ -381,7 +381,7 @@ export class GraphPanel {
             display: flex;
             flex-direction: column;
             gap: 6px;
-            z-index: 10;
+            z-index: 100;
             pointer-events: auto;
         }
 
