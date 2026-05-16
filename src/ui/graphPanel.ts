@@ -508,7 +508,7 @@ export class GraphPanel {
         let focusedFile = null;
 
         const zoom = d3.zoom()
-            .scaleExtent([0.1, 5])
+            .scaleExtent([0.35, 5])
             .filter(event => {
                 return !event.button && !event.target.closest('button') && !event.target.closest('.toolbar');
             })
@@ -544,7 +544,6 @@ export class GraphPanel {
                 const paths = Array.from(selectedFiles);
                 vscode.postMessage({ command: 'analyzeFiles', files: paths });
                 document.getElementById('summaryPanel').style.display = 'block';
-                document.getElementById('summaryPanel').scrollIntoView({ behavior: 'smooth', block: 'end' });
                 showSummary('Analyzing...', 'DINO System', 'Synthesizing knowledge from selected files...');
             };
 
@@ -596,16 +595,13 @@ export class GraphPanel {
             if (message.command === 'summaryLoading') {
                 showSummary('Analyzing selection', 'Working...', '');
                 document.getElementById('summaryPanel').style.display = 'block';
-                document.getElementById('summaryPanel').scrollIntoView({ behavior: 'smooth', block: 'end' });
             }
             if (message.command === 'combinedSummary') {
                 showSummary(message.title, message.provider, message.summary);
-                document.getElementById('summaryPanel').scrollIntoView({ behavior: 'smooth', block: 'end' });
             }
             if (message.command === 'exportLoading') {
                 document.getElementById('summaryProvider').textContent = 'Generating...';
                 document.getElementById('summaryPanel').style.display = 'block';
-                document.getElementById('summaryPanel').scrollIntoView({ behavior: 'smooth', block: 'end' });
             }
             if (message.command === 'exportReady') {
                 showSummary('Generated ' + message.exportType, message.path, message.summary || '');
@@ -871,6 +867,7 @@ export class GraphPanel {
             const finalGraphHeight = Math.max(600, currentY + 100);
             svg.attr('height', finalGraphHeight).attr('viewBox', '0 0 ' + graphWidthActual + ' ' + finalGraphHeight);
             document.getElementById('graphShell').style.minHeight = (finalGraphHeight + 70) + 'px';
+            zoom.translateExtent([[-graphWidthActual, -finalGraphHeight], [graphWidthActual * 2, finalGraphHeight * 2]]);
 
             if (vNodes.length === 0) {
                 renderEmptyState('Empty View', 'No nodes to display in this level.');
