@@ -332,10 +332,24 @@ export class GraphPanel {
 
         .summary-panel {
             display: none;
-            width: 100%;
+            position: fixed;
+            bottom: 70px;
+            left: 0;
+            right: 0;
+            max-height: 40vh;
+            overflow-y: auto;
+            z-index: 500;
             border-top: 1px solid var(--panel-border);
-            background: linear-gradient(90deg, rgba(30, 25, 7, 0.86), #080908 38%);
-            padding: 40px 20px;
+            background: rgba(7, 8, 8, 0.97);
+            padding: 20px 28px;
+            transform: translateY(100%);
+            transition: transform 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+            backdrop-filter: blur(8px);
+        }
+
+        .summary-panel.visible {
+            display: block;
+            transform: translateY(0%);
         }
 
         .summary-header {
@@ -506,15 +520,33 @@ export class GraphPanel {
         let currentZoomLevel = 'cluster'; // cluster | folder | file
         let expandedCluster = null;
         let focusedFile = null;
+        let graphWidthActual = 1000;
+        let finalGraphHeight = 600;
 
         const zoom = d3.zoom()
-            .scaleExtent([0.5, 5])
+            .scaleExtent([0.08, 5])
             .filter(event => {
                 return !event.button && !event.target.closest('button') && !event.target.closest('.toolbar');
             })
             .on('zoom', (event) => {
                 viewport.attr('transform', event.transform);
                 updateLabelVisibility(event.transform.k);
+
+                const { x, y, k } = event.transform;
+                const W = graphWidthActual * k;
+                const H = finalGraphHeight * k;
+                const vw = window.innerWidth;
+                const vh = window.innerHeight;
+                const MARGIN = 100;
+
+                const clampedX = Math.min(vw - MARGIN, Math.max(MARGIN - W, x));
+                const clampedY = Math.min(vh - MARGIN, Math.max(MARGIN - H, y));
+
+                if (clampedX !== x || clampedY !== y) {
+                    event.transform.x = clampedX;
+                    event.transform.y = clampedY;
+                    viewport.attr('transform', event.transform);
+                }
             });
 
         svg.call(zoom);
@@ -570,7 +602,9 @@ export class GraphPanel {
             };
 
             document.getElementById('closeSummary').onclick = () => {
-                document.getElementById('summaryPanel').style.display = 'none';
+                const panel = document.getElementById('summaryPanel');
+                panel.classList.remove('visible');
+                setTimeout(() => { panel.style.display = 'none'; }, 350);
             };
         }
 
@@ -629,11 +663,8 @@ export class GraphPanel {
         function peekSummary() {
             const panel = document.getElementById('summaryPanel');
             panel.style.display = 'block';
-            const rect = panel.getBoundingClientRect();
-            if (rect.top > window.innerHeight - 50) {
-                const targetY = window.scrollY + rect.top - window.innerHeight + 140;
-                window.scrollTo({ top: targetY, behavior: 'smooth' });
-            }
+            panel.getBoundingClientRect();
+            panel.classList.add('visible');
         }
 
         function showSummary(title, provider, body) {
@@ -829,7 +860,7 @@ export class GraphPanel {
             const MIN_NODE_GAP = 20;
 
             let currentY = 100;
-            const graphWidthActual = Math.max(1000, graphWidth);
+            graphWidthActual = Math.max(1000, graphWidth);
 
             sortedDepths.forEach(depthY => {
                 const nodesAtDepth = nodesByDepth.get(depthY);
@@ -875,10 +906,9 @@ export class GraphPanel {
                 currentY += rows.length * (maxRadius * 2 + LABEL_HEIGHT + 20) + BAND_PADDING;
             });
 
-            const finalGraphHeight = Math.max(600, currentY + 100);
+            finalGraphHeight = Math.max(600, currentY + 100);
             svg.attr('height', finalGraphHeight).attr('viewBox', '0 0 ' + graphWidthActual + ' ' + finalGraphHeight);
             document.getElementById('graphShell').style.minHeight = (finalGraphHeight + 70) + 'px';
-            zoom.translateExtent([[-graphWidthActual * 0.5, -finalGraphHeight * 0.5], [graphWidthActual * 1.5, finalGraphHeight * 1.5]]);
 
             if (vNodes.length === 0) {
                 renderEmptyState('Empty View', 'No nodes to display in this level.');
@@ -947,22 +977,34 @@ export class GraphPanel {
                 })
                 .on("dblclick", (event, d) => {
                     event.stopPropagation();
-                    if (d.kind === 'cluster') {
-                        currentZoomLevel = 'folder';
-                        expandedCluster = d.label;
-                        resetZoom();
-                        buildAndRender();
-                    } else if (d.kind === 'folder') {
-                        currentZoomLevel = 'file';
-                        focusedFile = d.files[0];
-                        resetZoom();
-                        buildAndRender();
-                    } else if (d.kind === 'file') {
-                        currentZoomLevel = 'file';
-                        focusedFile = d.path || d.files[0];
-                        resetZoom();
-                        buildAndRender();
-                    }
+                    const currentTransform = d3.zoomTransform(svg.node());
+                    const screenX = currentTransform.applyX(d.x);
+                    const screenY = currentTransform.applyY(d.y);
+                    const vw = window.innerWidth;
+                    const vh = window.innerHeight;
+
+                    const targetTransform = d3.zoomIdentity
+                        .translate(vw / 2 - screenX, vh / 2 - screenY)
+                        .scale(currentTransform.k);
+
+                    svg.transition()
+                        .duration(400)
+                        .ease(d3.easeCubicInOut)
+                        .call(zoom.transform, targetTransform)
+                        .on('end', () => {
+                            if (d.kind === 'cluster') {
+                                currentZoomLevel = 'folder';
+                                expandedCluster = d.label;
+                            } else if (d.kind === 'folder') {
+                                currentZoomLevel = 'file';
+                                focusedFile = d.files[0];
+                            } else if (d.kind === 'file') {
+                                currentZoomLevel = 'file';
+                                focusedFile = d.path || d.files[0];
+                            }
+                            svg.call(zoom.transform, d3.zoomIdentity);
+                            buildAndRender();
+                        });
                 })
                 .on("click", (event, d) => {
                     event.stopPropagation();
