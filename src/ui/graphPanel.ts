@@ -659,13 +659,48 @@ export class GraphPanel {
                 });
             }
 
+            // Group rows for density calculations
+            const rowMap = new Map();
             vNodes.forEach(n => {
+                // Initialize X position if not present for sensible left-to-right sorting
                 n.x = n.x || graphWidth / 2 + (Math.random() - 0.5) * 200;
+                const rowY = Math.round(n.fy / 20) * 20; 
+                if (!rowMap.has(rowY)) rowMap.set(rowY, []);
+                rowMap.get(rowY).push(n);
+            });
+            rowMap.forEach(rowNodes => {
+                rowNodes.sort((a,b) => a.x - b.x);
+                rowNodes.forEach((n, idx) => {
+                    n.indexInRow = idx;
+                    n.rowSize = rowNodes.length;
+                });
+            });
+
+            vNodes.forEach(n => {
                 n.y = n.fy;
                 vNodeMap.set(n.id, n);
             });
 
             const linkData = vEdges.filter(d => vNodeMap.has(d.source) && vNodeMap.has(d.target));
+
+            const neighbors = new Map();
+            linkData.forEach(l => {
+                const s = typeof l.source === 'object' ? l.source.id : l.source;
+                const t = typeof l.target === 'object' ? l.target.id : l.target;
+                if (!neighbors.has(s)) neighbors.set(s, new Set());
+                if (!neighbors.has(t)) neighbors.set(t, new Set());
+                neighbors.get(s).add(t);
+                neighbors.get(t).add(s);
+            });
+
+            function getLabelText(n, isHoveredOrConnected) {
+                if (isHoveredOrConnected || currentZoomLevel === 'cluster' || currentZoomLevel === 'file' || n.kind !== 'file') {
+                    return n.displayLabel;
+                }
+                const slotWidth = Math.max(30, graphWidth / n.rowSize);
+                const maxChars = Math.max(4, Math.floor((slotWidth - 8) / 6.6));
+                return n.displayLabel.length > maxChars ? n.displayLabel.slice(0, maxChars - 1) + '…' : n.displayLabel;
+            }
 
             repoMeta.textContent = \`\${vNodes.length} nodes, \${linkData.length} edges\`;
 
@@ -686,13 +721,23 @@ export class GraphPanel {
                     .on("start", dragstarted)
                     .on("drag", dragged)
                     .on("end", dragended))
+                .on("mouseover", (event, d) => {
+                    const connected = neighbors.get(d.id) || new Set();
+                    nodesGroup.selectAll('.node-label')
+                        .attr('opacity', n => (n.id === d.id || connected.has(n.id)) ? 1 : 0.15)
+                        .text(n => getLabelText(n, n.id === d.id || connected.has(n.id)));
+                })
+                .on("mouseout", () => {
+                    nodesGroup.selectAll('.node-label')
+                        .attr('opacity', 1)
+                        .text(n => getLabelText(n, false));
+                })
                 .on("dblclick", (event, d) => {
                     if (d.kind === 'cluster') {
                         currentZoomLevel = 'folder';
                         expandedCluster = d.label;
                         buildAndRender();
                     } else if (d.kind === 'file' || d.kind === 'folder') {
-                        // For folder, we could expand it, but current spec says file view
                         if (d.kind === 'file') {
                             currentZoomLevel = 'file';
                             focusedFile = d.path || d.files[0];
@@ -709,6 +754,8 @@ export class GraphPanel {
                 });
 
             node.selectAll("*").remove();
+            
+            node.append("title").text(d => d.displayLabel);
 
             node.append("circle")
                 .attr("class", "node-halo")
@@ -719,10 +766,33 @@ export class GraphPanel {
                 .attr("class", d => "node-circle " + d.kind + " " + (d.health_state || ''))
                 .attr("r", d => d.r);
 
+            // Tick line for staggered labels
+            node.filter(d => d.rowSize > 4 && d.rowSize <= 8 && d.indexInRow % 2 !== 0 && currentZoomLevel === 'folder' && d.kind === 'file')
+                .append('line')
+                .attr('x1', 0)
+                .attr('y1', d => d.r + 4)
+                .attr('x2', 0)
+                .attr('y2', d => d.r + 22)
+                .attr('stroke', 'var(--muted)')
+                .attr('stroke-width', 1)
+                .attr('stroke-dasharray', '2,2');
+
             node.append("text")
                 .attr("class", d => "node-label " + d.kind)
-                .attr("y", d => d.r + 14)
-                .text(d => d.displayLabel);
+                .attr("text-anchor", d => (currentZoomLevel === 'folder' && d.rowSize > 8 && d.kind === 'file') ? "end" : "middle")
+                .attr("transform", d => {
+                    if (currentZoomLevel === 'cluster' || currentZoomLevel === 'file' || d.kind !== 'file') return \`translate(0, \${d.r + 14})\`;
+                    const isDense = d.rowSize > 8;
+                    const isStaggered = d.rowSize > 4 && d.rowSize <= 8;
+                    if (isDense) {
+                        return \`translate(-6, \${d.r + 10}) rotate(-45)\`;
+                    } else if (isStaggered) {
+                        const isOdd = d.indexInRow % 2 !== 0;
+                        return \`translate(0, \${d.r + (isOdd ? 30 : 14)})\`;
+                    }
+                    return \`translate(0, \${d.r + 14})\`;
+                })
+                .text(d => getLabelText(d, false));
 
             simulation.nodes(vNodes).on("tick", () => {
                 link.attr("d", d => {
