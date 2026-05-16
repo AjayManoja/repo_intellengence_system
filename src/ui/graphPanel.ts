@@ -868,7 +868,7 @@ export class GraphPanel {
             });
 
             const finalGraphHeight = Math.max(600, currentY + 100);
-            svg.attr('height', finalGraphHeight).attr('viewBox', `0 0 ${graphWidthActual} ${finalGraphHeight}`);
+            svg.attr('height', finalGraphHeight).attr('viewBox', '0 0 ' + graphWidthActual + ' ' + finalGraphHeight);
             document.getElementById('graphShell').style.minHeight = (finalGraphHeight + 70) + 'px';
 
             if (vNodes.length === 0) {
