@@ -658,25 +658,50 @@ export class GraphPanel {
                 });
             }
 
-            // Group rows for density calculations
-            const rowMap = new Map();
-            vNodes.forEach(n => {
-                // Initialize X position if not present for sensible left-to-right sorting
-                n.x = n.x || graphWidth / 2 + (Math.random() - 0.5) * 200;
-                const rowY = Math.round(n.fy / 20) * 20; 
-                if (!rowMap.has(rowY)) rowMap.set(rowY, []);
-                rowMap.get(rowY).push(n);
-            });
-            rowMap.forEach(rowNodes => {
-                rowNodes.sort((a,b) => a.x - b.x);
-                rowNodes.forEach((n, idx) => {
-                    n.indexInRow = idx;
-                    n.rowSize = rowNodes.length;
+            // New Grid Positioning with Wrapping and Centering
+            const nodesByDepth = d3.group(vNodes, n => n.fy);
+            const NODE_DIAMETER = 40;
+            const H_GAP = 70;
+            const SLOT_WIDTH = NODE_DIAMETER + H_GAP;
+            const MAX_NODES_PER_ROW = Math.max(1, Math.floor((graphWidth - 60) / SLOT_WIDTH));
+
+            let extraHeightOffset = 0;
+            const sortedDepths = Array.from(nodesByDepth.keys()).sort((a,b) => a - b);
+
+            sortedDepths.forEach(depthY => {
+                const nodesAtDepth = nodesByDepth.get(depthY);
+                nodesAtDepth.sort((a,b) => a.id.localeCompare(b.id));
+
+                const rows = [];
+                for (let i = 0; i < nodesAtDepth.length; i += MAX_NODES_PER_ROW) {
+                    rows.push(nodesAtDepth.slice(i, i + MAX_NODES_PER_ROW));
+                }
+
+                rows.forEach((rowNodes, rowIndex) => {
+                    const rowCount = rowNodes.length;
+                    const totalRowWidth = rowCount * NODE_DIAMETER + (rowCount - 1) * H_GAP;
+                    const startX = (graphWidth - totalRowWidth) / 2;
+                    
+                    rowNodes.forEach((node, colIndex) => {
+                        node.x = startX + colIndex * SLOT_WIDTH + NODE_DIAMETER / 2;
+                        node.fy = depthY + extraHeightOffset + rowIndex * 130;
+                        node.rowSize = rowNodes.length;
+                        node.indexInRow = colIndex;
+                        node.y = node.fy;
+                    });
                 });
+                
+                if (rows.length > 1) {
+                    extraHeightOffset += (rows.length - 1) * 130;
+                }
             });
 
+            if (extraHeightOffset > 0) {
+                const newHeight = graphHeight + extraHeightOffset;
+                svg.attr('height', newHeight).attr('viewBox', \`0 0 \${graphWidth} \${newHeight}\`);
+            }
+
             vNodes.forEach(n => {
-                n.y = n.fy;
                 vNodeMap.set(n.id, n);
             });
 
