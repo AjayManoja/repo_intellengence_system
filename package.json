@@ -1,15 +1,39 @@
 {
   "name": "repo-intelligence",
+  "displayName": "Repo Intelligence",
   "version": "1.0.0",
   "description": "AI-Native Repository Intelligence System",
-  "main": "dist/index.js",
+  "main": "dist/extension.js",
+  "engines": {
+    "vscode": "^1.80.0"
+  },
+  "activationEvents": [
+    "onCommand:repo-intelligence.openCommandInput",
+    "onCommand:repo-intelligence.visualize"
+  ],
+  "contributes": {
+    "commands": [
+      {
+        "command": "repo-intelligence.openCommandInput",
+        "title": "Repo: Open Command Input"
+      },
+      {
+        "command": "repo-intelligence.visualize",
+        "title": "Repo: Visualize Graph"
+      }
+    ]
+  },
   "scripts": {
     "start": "ts-node src/index.ts",
-    "build": "tsc"
+    "build": "tsc",
+    "watch": "tsc -w"
+  },
+  "dependencies": {
+    "typescript": "^5.0.0"
   },
   "devDependencies": {
-    "typescript": "^5.0.0",
-    "ts-node": "^10.9.1",
-    "@types/node": "^20.0.0"
+    "@types/node": "^20.19.41",
+    "@types/vscode": "^1.120.0",
+    "ts-node": "^10.9.1"
   }
 }

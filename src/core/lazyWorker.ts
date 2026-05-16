@@ -1,51 +1,84 @@
+import { RecentCache } from './recentCache';
 import { StructRepo } from './structRepo';
+import { CacheEntry, LazyJob, LazyOperation } from '../types';
 
 export class LazyWorker {
-    private cache: Map<string, any>;
-    private maxCacheSize: number;
+    constructor(
+        private readonly structRepo: StructRepo,
+        private readonly cache: RecentCache
+    ) {}
 
-    constructor(maxCacheSize: number = 10) {
-        // "store it in recent name folders it will store top-k recent computed"
-        this.cache = new Map();
-        this.maxCacheSize = maxCacheSize;
+    public async request<T>(
+        operation: LazyOperation,
+        fileSet: string[],
+        compute: (job: LazyJob) => Promise<T> | T
+    ): Promise<T> {
+        const response = await this.requestWithStatus(operation, fileSet, compute);
+        return response.result;
     }
 
-    /**
-     * Executes work lazily. No pre-compute.
-     * Uses the `isModified` flag to determine if it should re-compute.
-     */
-    public executeTask(filepath: string, structRepo: StructRepo, taskFn: () => any): any {
-        const fileNode = structRepo.getFile(filepath);
+    public async requestWithStatus<T>(
+        operation: LazyOperation,
+        fileSet: string[],
+        compute: (job: LazyJob) => Promise<T> | T
+    ): Promise<{ result: T; cacheHit: boolean }> {
+        const branch = this.structRepo.currentBranch;
+        const key = this.cache.buildKey(operation, fileSet, branch);
+        const cached = await this.cache.get(key);
 
-        if (!fileNode) {
-            throw new Error(`File ${filepath} not found in StructRepo.`);
+        if (cached && this.isFileSetClean(cached.file_set)) {
+            return { result: cached.result as T, cacheHit: true };
         }
 
-        // "add in each file bool : isModified if yes then re-compute else send to same to the user"
-        if (!fileNode.isModified && this.cache.has(filepath)) {
-            console.log(`[LazyWorker] Returning cached result for ${filepath}`);
-            return this.cache.get(filepath);
+        if (cached) {
+            await this.cache.markStale(key);
         }
 
-        console.log(`[LazyWorker] Computing task for ${filepath}...`);
-        const result = taskFn();
-        
-        this.storeInCache(filepath, result);
-        
-        // Mark as clean since we have processed the latest state
-        structRepo.markAsClean(filepath);
+        const result = await this.spawnWorker(operation, fileSet, branch, compute);
+        return { result, cacheHit: false };
+    }
+
+    private async spawnWorker<T>(
+        operation: LazyOperation,
+        fileSet: string[],
+        branch: string,
+        compute: (job: LazyJob) => Promise<T> | T
+    ): Promise<T> {
+        const job: LazyJob = {
+            operation,
+            file_set: [...fileSet].sort(),
+            branch,
+            struct_repo_version: this.structRepo.version
+        };
+
+        const started = Date.now();
+        const result = await compute(job);
+        const computeCost = Date.now() - started;
+
+        if (this.structRepo.version !== job.struct_repo_version) {
+            return this.spawnWorker(operation, fileSet, this.structRepo.currentBranch, compute);
+        }
+
+        const key = this.cache.buildKey(operation, job.file_set, branch);
+        const entry: CacheEntry<T> = {
+            key,
+            result,
+            compute_cost_ms: computeCost,
+            last_accessed: new Date().toISOString(),
+            file_set: job.file_set,
+            branch
+        };
+
+        await this.cache.set(entry);
+        this.structRepo.repo_updater({ markCacheValid: job.file_set });
 
         return result;
     }
 
-    private storeInCache(key: string, result: any) {
-        if (this.cache.size >= this.maxCacheSize) {
-            // Remove oldest entry (Map iterates in insertion order)
-            const firstKey = this.cache.keys().next().value;
-            if (firstKey !== undefined) {
-                this.cache.delete(firstKey);
-            }
-        }
-        this.cache.set(key, result);
+    private isFileSetClean(fileSet: string[]): boolean {
+        return fileSet.every((filePath) => {
+            const entry = this.structRepo.getIndexEntry(filePath);
+            return entry ? entry.cache_valid : false;
+        });
     }
 }

@@ -26,7 +26,7 @@ This is the **Main Gate for the AI Model**. Before any command reaches the Git M
 - **Behavior:**
   - Tracks all Git files, repository metadata, and directory hierarchies.
   - Arranges data in an optimized order that allows the LLM and other modules to easily parse the codebase state.
-  - **State Tracking:** Every file entry includes a boolean flag: `isModified`.
+  - **State Tracking:** Decoupled flags `git_status` (tracks repository changes) and `cache_valid` (tracks cache freshness).
 
 ### 3.3. Lazy Worker & Cache Engine
 To ensure high performance and low resource consumption, the system uses a strict lazy-evaluation model.
@@ -34,9 +34,9 @@ To ensure high performance and low resource consumption, the system uses a stric
 - **Behavior:**
   - **No Pre-computation of heavy tasks:** Workers sit idle until a specific command invokes them.
   - **Caching:** Once a task (e.g., a complex dependency summary) is computed, the result is stored in a `recent` folder. The system retains the Top-K most recent computations.
-  - **Validation (`isModified` check):** Before processing a request for a file/module, the system checks the `isModified` boolean in `struct_repo`. 
-    - If `isModified == true`: The worker re-computes the result, updates the cache, and resets the flag.
-    - If `isModified == false`: The worker immediately returns the cached result from the `recent` folder.
+  - **Validation (`cache_valid` check):** Before processing a request for a file/module, the system checks the `cache_valid` boolean in `struct_repo`. 
+    - If `cache_valid == false`: The worker re-computes the result, updates the cache, and resets the flag to true.
+    - If `cache_valid == true`: The worker immediately returns the cached result from the `recent` folder.
 
 ### 3.4. Git Operations Module
 Abstracts away standard Git syntax.
@@ -45,13 +45,23 @@ Abstracts away standard Git syntax.
   - *Always* references `struct_repo` to understand the current state of the files before executing operations.
   - Handles branching, merging, committing, and conflict detection under the hood.
 
-### 3.5. Graph & Diff Engine
+### 3.5. Graph & Diff Engine (D3 + 3-Level Zoom)
 Generates the real-time visual representation of the repository.
-- **Responsibility:** Maps dependencies, file relationships, and architectural flows.
+- **Responsibility:** Maps dependencies, file relationships, and architectural flows with depth-rank based layout.
 - **Behavior:**
+  - **3-Level Zoom Architecture:** Switches between Cluster (high-level), Folder (mid-level), and File (one-hop focus) views.
+  - **Deterministic Layout:** Uses `depth_rank` as the Y-axis to visualize the repository hierarchy and dependency flow.
   - Maintains its own internal structure: `graph_structure` (which holds pre-computed diffs).
   - To build the visual graph, the engine measures the difference between the main `struct_repo` and its internal `graph_structure_repo`.
-  - Uses these diffs to efficiently update nodes (e.g., coloring a node yellow for modified, red for conflict).
+  - Uses these diffs to efficiently update nodes (e.g., coloring a node amber for modified, red for conflict).
+
+### 3.6. Parallel Groq Summarizer Chain
+An intelligent orchestrator for high-quality structured summaries.
+- **Responsibility:** Generates multi-role analysis using a 5-model parallel chain.
+- **Behavior:**
+  - **Analysts:** Models 1-4 run in parallel to generate JSON-formatted analysis for Overview, Structure, Risk, and Dependencies.
+  - **Synthesizer:** Model 5 receives the combined JSON data and synthesizes a final, coherent developer summary.
+  - Supports dynamic API keys (`GROQ_API_KEY_1` to `5`) and model-specific configurations.
 
 ---
 
@@ -68,14 +78,14 @@ Generates the real-time visual representation of the repository.
 ### 4.2. Lazy Computation & Caching Flow
 1. **Input:** User or LLM requests context for `AuthService.ts`.
 2. **Check State:** The Lazy Worker checks `struct_repo` for `AuthService.ts`.
-3. **Evaluate `isModified`:**
-   - **True:** Worker runs AST parsing/dependency analysis, stores result in the `recent/` cache, marks `isModified = false`, and returns the context.
-   - **False:** Worker skips computation and serves the existing data directly from the `recent/` cache.
+3. **Evaluate `cache_valid`:**
+   - **False:** Worker runs AST parsing/dependency analysis or 5-model Groq chain, stores result in the `recent/` cache, marks `cache_valid = true`, and returns the context.
+   - **True:** Worker skips computation and serves the existing data directly from the `recent/` cache.
 
 ### 4.3. Graph Rendering Flow
 1. **Trigger:** A file is modified or a branch is changed.
-2. **State Update:** `struct_repo` updates the file's `isModified` flag to `true`.
-3. **Diff Measurement:** Graph Engine compares `struct_repo` against `graph_structure_repo`.
+2. **State Update:** `struct_repo` updates the file's `cache_valid` flag to `false`.
+3. **Diff Measurement:** Graph Engine compares `struct_repo` against `graph_struct`.
 4. **Render:** The Graph Engine generates a targeted update (e.g., turning the modified node yellow) without rebuilding the entire architecture map.
 
 ---
@@ -91,17 +101,17 @@ interface StructRepo {
 }
 
 interface TrackedFile {
-  filepath: string;
-  isModified: boolean;  // Crucial for Lazy Worker caching
-  gitStatus: "tracked" | "untracked" | "ignored";
+  path: string;
+  cache_valid: boolean;  // Decoupled from Git status
+  git_status: "M" | "A" | "D" | "?" | "clean";
   dependencies: string[];
 }
 
 // Graph Engine specific structure
-interface GraphStructureRepo {
-  nodes: GraphNode[];
+interface GraphStruct {
+  nodes: Record<string, GraphNode>;
   edges: GraphEdge[];
-  lastCalculatedDiffs: any; // Pre-computed diff states
+  built_from_version: number;
 }
 ```
 

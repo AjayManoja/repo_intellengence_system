@@ -22,7 +22,7 @@ The proposed design is technically consistent and implementation-ready with a fe
 - The two-phase initialization is correct. `repo_index` gives a fast usable state, while `repo_topology` can arrive later without blocking the user.
 - `struct_repo` should be the state gate for all modules. Git, cache, graph, and workers should not independently inspect the repo when a validated state value already exists.
 - A monotonic `struct_repo.version` is necessary. It gives workers and graph updates a simple stale-result check.
-- `isModified` should be treated as a cache-validity flag, not a Git dirty-state flag. Git state belongs in `git_status`.
+- `cache_valid` should be treated as a cache-validity flag, not a Git dirty-state flag. Git state belongs in `git_status`.
 - Branch validation cannot rely only on `git ls-files`; Phase 1A also needs a lightweight branch list command such as `git branch --format=%(refname:short)` or an equivalent Git daemon method.
 - Deleted files need careful handling. A deleted file can appear in Git status but may not be readable during topology parsing.
 - Untracked files are not returned by `git ls-files` unless explicitly included. If `?` status is required, Phase 1A must also read porcelain status.
@@ -80,7 +80,7 @@ interface RepoIndexEntry {
   git_status: "M" | "A" | "D" | "?" | "clean";
   last_commit_hash: string;
   branch: string;
-  isModified: boolean;
+  cache_valid: boolean;
 }
 ```
 
@@ -93,6 +93,10 @@ interface RepoTopologyEntry {
   path: string;
   imports: string[];
   exports: string[];
+  references: string[];
+  declared_symbols: string[];
+  used_symbols: string[];
+  cluster: string;
   depth_rank: number;
   last_computed: string;
 }
@@ -108,9 +112,13 @@ interface StructRepoFileView {
   git_status: "M" | "A" | "D" | "?" | "clean";
   last_commit_hash: string;
   branch: string;
-  isModified: boolean;
+  cache_valid: boolean;
   imports: string[];
   exports: string[];
+  references: string[];
+  declared_symbols: string[];
+  used_symbols: string[];
+  cluster: string;
   depth_rank: number;
   last_computed: string;
 }
@@ -133,8 +141,8 @@ repo_updater(patch): StructRepo
 
 Ownership rules:
 
-- Only the file watcher sets `isModified: true`.
-- Only a completed lazy worker sets `isModified: false`.
+- Only the file watcher sets `cache_valid: false`.
+- Only a completed lazy worker sets `cache_valid: true`.
 - Git controllers may update `git_status`, `last_commit_hash`, `currentBranch`, and `branches`.
 - The topology worker may update `imports`, `exports`, `depth_rank`, and `last_computed`.
 - No module owns a private copy of `struct_repo`.
@@ -182,6 +190,10 @@ Work:
 - parse supported files with AST tooling
 - extract imports
 - extract exports
+- extract CommonJS `require`, dynamic import, HTML script/link, CSS import, and literal path references
+- extract declared symbols and used symbols for files that do not expose explicit imports
+- infer symbol-based edges when a known file declares a symbol used elsewhere
+- infer feature clusters from path and symbol names
 - resolve import paths where possible
 - compute dependency order with topological sort
 - assign `depth_rank`
@@ -354,7 +366,12 @@ Worker flow:
 4. If versions match, write result and mark files clean.
 5. If versions differ, discard result and respawn with a fresh version.
 
-Workers are fire-and-forget from the user perspective. The UI shows a spinner or pending state until the result is ready.
+Workers are fire-and-forget from the user perspective. The UI shows a spinner or pending state until the result is ready. 
+
+**Groq Summarization Chain**:
+For summarization, the worker implements a two-phase chain:
+1. Fire 4 analyst models in parallel (Overview, Structure, Risk, Dependencies) requesting ONLY JSON output.
+2. Fire a Synthesizer model that takes the JSON from step 1 and produces the final developer-facing Markdown.
 
 ## Recent Cache
 
@@ -388,15 +405,15 @@ interface CacheEntry {
 }
 ```
 
-### Lookup Flow
+### Lookup Flow:
 
 1. Compute key.
 2. Check memory cache.
 3. If missing, check `recent/{key}.json`.
 4. If no entry exists, spawn a lazy worker.
-5. If an entry exists, check `isModified` for every file in `file_set`.
-6. If all files are clean, return cached result and update `last_accessed`.
-7. If any file is modified, spawn a lazy worker and mark the old entry stale.
+5. If an entry exists, check `cache_valid` for every file in `file_set`.
+6. If all files are valid, return cached result and update `last_accessed`.
+7. If any file is invalid, spawn a lazy worker and mark the old entry stale.
 
 ### Eviction
 
@@ -408,22 +425,22 @@ score = time_since_last_access / compute_cost_ms
 
 Lowest score is evicted first. This keeps expensive results around longer than cheap results.
 
-## `isModified` Lifecycle
+## `cache_valid` Lifecycle
 
-`isModified` means:
+`cache_valid` means:
 
-> The cached computed result for this file may be invalid.
+> The cached computed result for this file is currently up-to-date.
 
 It does not mean:
 
-> The file is dirty in Git.
+> The file is clean in Git.
 
 Lifecycle:
 
-- file watcher sets `isModified: true`
-- lazy worker sets `isModified: false` after successful fresh computation and cache write
-- cache lookup reads `isModified`
-- graph diff engine reads `isModified`
+- file watcher sets `cache_valid: false`
+- lazy worker sets `cache_valid: true` after successful fresh computation and cache write
+- cache lookup reads `cache_valid`
+- graph diff engine reads `cache_valid` to determine modification halo state
 
 File watcher debounce:
 
@@ -450,6 +467,9 @@ interface GraphNode {
   path: string;
   imports: string[];
   exports: string[];
+  references: string[];
+  declared_symbols: string[];
+  cluster: string;
   depth_rank: number;
   health_state: "clean" | "modified" | "conflict" | "ignored" | "error";
 }
@@ -477,6 +497,15 @@ The graph is built lazily when:
 
 The graph worker reads `repo_topology` and constructs `graph_struct`.
 
+The graph structure is persisted as the local graph database:
+
+```txt
+recent/graph_struct.json
+```
+
+This file is the reusable UI data source for the graph panel. The UI must not
+re-parse repository files directly.
+
 ### Incremental Update
 
 When `git visualize` runs again:
@@ -499,6 +528,14 @@ Default view:
 
 - current branch subgraph only
 - not the entire repository
+- top header shows the current branch name
+- the graph renders as a dark, high-contrast file-system forest with restrained glow
+- folder pseudo nodes are created from file paths and act as leaders for their child folders/files
+- folder-to-folder and folder-to-file hierarchy edges are visually distinct from file dependency edges
+- file dependency edges are drawn between files using `graph_struct.edges`
+- selecting a folder pseudo node selects every file inside that folder recursively
+- the graph should be large and separated enough that folder structure and dependency edges can be inspected without collapsing into one dense blob
+- the summary panel is flexible/resizable and sits below the graph so the user can focus on one part at a time
 
 Branch selector:
 
@@ -514,8 +551,12 @@ Subgraph focus:
 
 Node menu:
 
-- single file: `Summarize`
-- any selection: `Export markdown`
+- clicking a single file outside selection mode: focus that file selection
+- `Select` button: enter selection mode
+- `Cancel` button: leave selection mode and clear selected files
+- `Analyze` button: summarize selected files or all files under selected folder pseudo nodes into the bottom panel
+- selected files: `Generate Summary PDF`
+- selected files: `Generate Markdown File`
 - red node: `Trace conflict`
 - two or more files: `Summarize all`
 
@@ -523,6 +564,12 @@ Phase 1 behavior:
 
 - `Summarize` may call an LLM after structured context is built
 - `Export markdown` uses a deterministic template first, with optional LLM prose
+- `Generate Summary PDF` writes a local PDF export under `recent/`
+- `Generate Markdown File` writes a local markdown context file under `recent/`
+- exports use selected graph nodes as their file set and prefer the currently generated bottom-panel summary when available
+- summary generation supports multiple configured Groq keys and role prompts
+- supported key names include `GROQ_API_KEY`, `GROQ_API_KEY_1` through `GROQ_API_KEY_5`, `GROQAPIKEY1` through `GROQAPIKEY5`, and lowercase `groqapikey1` through `groqapikey5`
+- model roles append separate sections instead of replacing each other: overview, code structure, error/risk review, dependency/API context, and LLM handoff notes
 - `Trace conflict` is pure graph traversal and does not require an LLM
 - `Summarize all` is reserved for Phase 2 MoE behavior
 
@@ -533,7 +580,7 @@ Phase 1 behavior:
 ```txt
 file watcher
   -> debounce 300ms
-  -> repo_updater sets isModified: true
+  -> repo_updater sets cache_valid: false
   -> append graph pending diff
   -> increment struct_repo.version
 ```
@@ -559,12 +606,12 @@ user input
 operation request
   -> compute cache key
   -> check memory and disk cache
-  -> check isModified for file_set
+  -> check cache_valid for file_set
   -> clean hit returns cached result
   -> miss or stale spawns worker
   -> worker captures version
-  -> worker computes
-  -> version match writes cache and clears isModified
+  -> worker computes (parallel chain for Groq)
+  -> version match writes cache and sets cache_valid: true
   -> version mismatch discards and respawns
 ```
 
@@ -601,8 +648,8 @@ Expected command behavior:
 
 Expected cache behavior:
 
-- repeated summary/export/graph requests return quickly when files are clean
-- modified files trigger recomputation
+- repeated summary/export/graph requests return quickly when files are valid
+- modified files (cache_valid: false) trigger recomputation
 - stale worker results are discarded when the repo changes during computation
 - recent cache survives process restarts
 
@@ -699,4 +746,3 @@ Recommended first refactor:
 - add `repo_index`, `repo_topology`, `branches`, and `version`
 - remove direct mutator methods like `markAsModified` from public module access
 - introduce `repo_updater` as the only write path
-
