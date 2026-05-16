@@ -544,7 +544,7 @@ export class GraphPanel {
                 const paths = Array.from(selectedFiles);
                 vscode.postMessage({ command: 'analyzeFiles', files: paths });
                 document.getElementById('summaryPanel').style.display = 'block';
-                document.getElementById('summaryPanel').scrollIntoView({ behavior: 'smooth' });
+                document.getElementById('summaryPanel').scrollIntoView({ behavior: 'smooth', block: 'end' });
                 showSummary('Analyzing...', 'DINO System', 'Synthesizing knowledge from selected files...');
             };
 
@@ -596,16 +596,16 @@ export class GraphPanel {
             if (message.command === 'summaryLoading') {
                 showSummary('Analyzing selection', 'Working...', '');
                 document.getElementById('summaryPanel').style.display = 'block';
-                window.scrollTo(0, document.body.scrollHeight);
+                document.getElementById('summaryPanel').scrollIntoView({ behavior: 'smooth', block: 'end' });
             }
             if (message.command === 'combinedSummary') {
                 showSummary(message.title, message.provider, message.summary);
-                window.scrollTo(0, document.body.scrollHeight);
+                document.getElementById('summaryPanel').scrollIntoView({ behavior: 'smooth', block: 'end' });
             }
             if (message.command === 'exportLoading') {
                 document.getElementById('summaryProvider').textContent = 'Generating...';
                 document.getElementById('summaryPanel').style.display = 'block';
-                window.scrollTo(0, document.body.scrollHeight);
+                document.getElementById('summaryPanel').scrollIntoView({ behavior: 'smooth', block: 'end' });
             }
             if (message.command === 'exportReady') {
                 showSummary('Generated ' + message.exportType, message.path, message.summary || '');
@@ -978,38 +978,23 @@ export class GraphPanel {
                 .attr("class", d => "node-circle " + d.kind + " " + (d.health_state || ''))
                 .attr("r", d => d.r);
 
-            // Tick line for staggered labels
-            node.filter(d => d.rowSize > 4 && d.rowSize <= 8 && d.indexInRow % 2 !== 0 && (currentZoomLevel === 'folder' || currentZoomLevel === 'file') && d.kind === 'file')
-                .append('line')
-                .attr('x1', 0)
-                .attr('y1', d => d.r + 4)
-                .attr('x2', 0)
-                .attr('y2', d => d.r + 22)
-                .attr('stroke', 'var(--muted)')
-                .attr('stroke-width', 1)
-                .attr('stroke-dasharray', '2,2');
-
             node.append("text")
                 .attr("class", d => "node-label " + d.kind)
-                .attr("text-anchor", d => ((currentZoomLevel === 'folder' || currentZoomLevel === 'file') && d.rowSize > 8 && d.kind === 'file') ? "end" : "middle")
+                .attr("text-anchor", d => ((currentZoomLevel === 'folder' || currentZoomLevel === 'file') && d.rowSize > 3 && d.kind === 'file') ? "end" : "middle")
                 .attr("transform", d => {
-                    if (currentZoomLevel === 'cluster' || d.kind !== 'file') return \`translate(0, \${d.r + 14})\`;
-                    const isDense = d.rowSize > 8;
-                    const isStaggered = d.rowSize > 4 && d.rowSize <= 8;
+                    if (currentZoomLevel === 'cluster' || d.kind !== 'file') return 'translate(0, ' + (d.r + 14) + ')';
+                    const isDense = d.rowSize > 3;
                     if (isDense) {
-                        return \`translate(-6, \${d.r + 10}) rotate(-45)\`;
-                    } else if (isStaggered) {
-                        const isOdd = d.indexInRow % 2 !== 0;
-                        return \`translate(0, \${d.r + (isOdd ? 30 : 14)})\`;
+                        return 'translate(-6, ' + (d.r + 10) + ') rotate(-45)';
                     }
-                    return \`translate(0, \${d.r + 14})\`;
+                    return 'translate(0, ' + (d.r + 14) + ')';
                 })
                 .text(d => getLabelText(d, false));
 
             simulation.nodes(vNodes).on("tick", () => {
                 link.attr("d", d => {
                     if (d.kind === 'hierarchy') {
-                        return \`M \${d.source.x} \${d.source.y} L \${d.target.x} \${d.target.y}\`;
+                        return 'M ' + d.source.x + ' ' + d.source.y + ' L ' + d.target.x + ' ' + d.target.y;
                     }
                     const dx = d.target.x - d.source.x, dy = d.target.y - d.source.y;
                     const dr = Math.sqrt(dx * dx + dy * dy);
