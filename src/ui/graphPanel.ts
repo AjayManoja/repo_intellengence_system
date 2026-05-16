@@ -477,6 +477,14 @@ export class GraphPanel {
             });
 
         svg.call(zoom);
+        svg.on('dblclick.zoom', null);
+        svg.on('click', () => {
+            if (!selecting) {
+                selectedFiles.clear();
+                paintSelection();
+                updateControls();
+            }
+        });
 
         function updateLabelVisibility(k) {
             nodesGroup.selectAll('.node-label')
@@ -836,6 +844,7 @@ export class GraphPanel {
                         .text(n => getLabelText(n, false));
                 })
                 .on("dblclick", (event, d) => {
+                    event.stopPropagation();
                     if (d.kind === 'cluster') {
                         currentZoomLevel = 'folder';
                         expandedCluster = d.label;
@@ -849,6 +858,7 @@ export class GraphPanel {
                     }
                 })
                 .on("click", (event, d) => {
+                    event.stopPropagation();
                     if (!selecting) selectedFiles.clear();
                     const shouldSelect = d.files.some(file => !selectedFiles.has(file));
                     d.files.forEach(file => shouldSelect ? selectedFiles.add(file) : selectedFiles.delete(file));
