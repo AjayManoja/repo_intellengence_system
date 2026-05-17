@@ -55,12 +55,14 @@ Generates the real-time visual representation of the repository.
   - To build the visual graph, the engine measures the difference between the main `struct_repo` and its internal `graph_structure_repo`.
   - Uses these diffs to efficiently update nodes (e.g., coloring a node amber for modified, red for conflict).
 
-### 3.6. Parallel Groq Summarizer Chain
-An intelligent orchestrator for high-quality structured summaries.
-- **Responsibility:** Generates multi-role analysis using a 5-model parallel chain.
+### 3.6. Parallel Groq Summarizer & Handoff Chain
+An intelligent orchestrator for high-quality structured summaries and downstream LLM contexts.
+- **Responsibility:** Generates multi-role analysis using a 5-model parallel/sequential chain.
 - **Behavior:**
-  - **Analysts:** Models 1-4 run in parallel to generate JSON-formatted analysis for Overview, Structure, Risk, and Dependencies.
-  - **Synthesizer:** Model 5 receives the combined JSON data and synthesizes a final, coherent developer summary.
+  - **Phase 1 Analysts (Parallel):** Four independent `llama-3.1-8b-instant` models run in parallel to analyze Overview, Code Structure, Risk & Error, and Dependencies. Each model is bound by a strict, custom JSON schema contract ensuring structured precision.
+  - **Phase 2 Synthesizer (Sequential):** A fifth model compiles the combined JSON findings to produce two distinct sections:
+    - **Developer Summary**: Plain-prose, symbol-accurate review guide for humans.
+    - **LLM Handoff Block**: Compact, paste-ready context snippet to quickly seed Claude or ChatGPT conversations with exact dependency, API, and status variables.
   - Supports dynamic API keys (`GROQ_API_KEY_1` to `5`) and model-specific configurations.
 
 ---

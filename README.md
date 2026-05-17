@@ -8,7 +8,10 @@ An AI-native repository intelligence system designed to provide deep structural 
   - **Cluster View**: High-level architectural groupings.
   - **Folder View**: Drill-down into specific directory structures.
   - **File View**: Focus on one-hop dependency neighborhoods.
-- **Parallel Multi-Model Summarization**: A 5-model processing chain (using Groq) that utilizes specialized analysts for Overview, Structure, Risk, and Dependencies, followed by a professional Technical Writer synthesizer.
+- **Parallel Multi-Model Summarization & Handoff**: A specialized 5-model processing chain built using Groq:
+  - **Phase 1 (Parallel)**: Four independent `llama-3.1-8b-instant` analysts parsing Overview, Code Structure, Risk & Error, and Dependency context respectively.
+  - **Strict Output Contracts**: Enforces role-specific structural JSON schemas for absolute data accuracy.
+  - **Phase 2 (Sequential)**: A professional Technical Writer/Synthesizer compiles the four analysis payloads into a two-section technical summary: a human-oriented Developer Summary and a paste-ready, dense "LLM Handoff Block" (ideal for Claude, GPT, or Gemini context injection).
 - **Decoupled Cache Architecture**: Advanced state tracking using `git_status` and `cache_valid` flags to ensure high performance and data integrity.
 - **AI-Native Command Surface**: Execute Git operations and intelligence tasks through a simplified, intention-driven command interface.
 - **D3-Driven Visualizations**: High-performance graph rendering with depth-rank based layouts for clear repository topology.
