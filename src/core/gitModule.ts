@@ -50,12 +50,19 @@ export class GitModule {
         try {
             const result = await this.git.run(gitArgs);
             await this.indexer.refreshGitState();
+            
+            let finalStdout = result.stdout;
+            if (command.definition.controller === 'ShowStatus') {
+                finalStdout = finalStdout.split('\n')
+                    .filter(line => !line.includes('recent/'))
+                    .join('\n').trim();
+            }
 
             return {
                 ok: true,
-                message: this.successMessage(command, result.stdout),
+                message: this.successMessage(command, finalStdout),
                 command: `git ${gitArgs.join(' ')}`,
-                stdout: result.stdout,
+                stdout: finalStdout,
                 stderr: result.stderr
             };
         } catch (error) {

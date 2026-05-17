@@ -197,6 +197,8 @@ export class GraphPanel {
             background: var(--bg);
             font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
             scroll-behavior: smooth;
+            user-select: none;
+            -webkit-user-select: none;
         }
 
         .app {
@@ -214,11 +216,11 @@ export class GraphPanel {
         }
 
         header {
-            position: absolute;
+            position: fixed;
             top: 0;
             left: 0;
             right: 0;
-            background: linear-gradient(to bottom, var(--bg-app) 70%, transparent);
+            background: linear-gradient(to bottom, var(--bg) 70%, transparent);
             padding: 24px 28px;
             z-index: 100;
             pointer-events: none; /* Pass through to graph */
@@ -529,28 +531,72 @@ export class GraphPanel {
                 return !event.button && !event.target.closest('button') && !event.target.closest('.toolbar');
             })
             .on('zoom', (event) => {
-                viewport.attr('transform', event.transform);
-                updateLabelVisibility(event.transform.k);
-
-                const { x, y, k } = event.transform;
-                const W = graphWidthActual * k;
-                const H = finalGraphHeight * k;
+                const t = event.transform;
+                const W = graphWidthActual * t.k;
+                const H = finalGraphHeight * t.k;
                 const vw = window.innerWidth;
                 const vh = window.innerHeight;
                 const MARGIN = 100;
 
-                const clampedX = Math.min(vw - MARGIN, Math.max(MARGIN - W, x));
-                const clampedY = Math.min(vh - MARGIN, Math.max(MARGIN - H, y));
+                t.x = Math.min(vw - MARGIN, Math.max(MARGIN - W, t.x));
+                t.y = Math.min(vh - MARGIN, Math.max(MARGIN - H, t.y));
 
-                if (clampedX !== x || clampedY !== y) {
-                    event.transform.x = clampedX;
-                    event.transform.y = clampedY;
-                    viewport.attr('transform', event.transform);
-                }
+                // Sync D3's internal zoom state to prevent control fighting
+                svg.node().__zoom = t;
+
+                viewport.attr('transform', t);
+                updateLabelVisibility(t.k);
             });
 
         svg.call(zoom);
         svg.on('dblclick.zoom', null);
+
+        svg.on('wheel.zoom', (event) => {
+            event.preventDefault();
+
+            const currentTransform = d3.zoomTransform(svg.node());
+
+            if (event.ctrlKey) {
+                // Two-finger pinch — zoom toward finger position
+                const scaleDelta = -event.deltaY * 0.01;
+                const newScale = Math.max(0.08, Math.min(5,
+                    currentTransform.k * Math.pow(2, scaleDelta)
+                ));
+                const [mx, my] = d3.pointer(event, svg.node());
+                svg.call(zoom.transform, d3.zoomIdentity
+                    .translate(
+                        mx - (mx - currentTransform.x) * (newScale / currentTransform.k),
+                        my - (my - currentTransform.y) * (newScale / currentTransform.k)
+                    )
+                    .scale(newScale)
+                );
+
+            } else if (event.deltaMode === 0 && Math.abs(event.deltaX) < 5) {
+                // Mouse wheel vertical — zoom toward cursor
+                const scaleDelta = -event.deltaY * 0.005;
+                const newScale = Math.max(0.08, Math.min(5,
+                    currentTransform.k * Math.pow(2, scaleDelta)
+                ));
+                const [mx, my] = d3.pointer(event, svg.node());
+                svg.call(zoom.transform, d3.zoomIdentity
+                    .translate(
+                        mx - (mx - currentTransform.x) * (newScale / currentTransform.k),
+                        my - (my - currentTransform.y) * (newScale / currentTransform.k)
+                    )
+                    .scale(newScale)
+                );
+
+            } else {
+                // Two-finger swipe — pan
+                svg.call(zoom.transform, d3.zoomIdentity
+                    .translate(
+                        currentTransform.x - event.deltaX,
+                        currentTransform.y - event.deltaY
+                    )
+                    .scale(currentTransform.k)
+                );
+            }
+        }, { passive: false });
 
         svg.on('click', (event) => {
             const t = event.target;
@@ -624,7 +670,7 @@ export class GraphPanel {
             const message = event.data;
             if (message.command === 'updateGraph') {
                 graph = message.data;
-                buildAndRender();
+                buildAndRender(false);
             }
             if (message.command === 'summaryLoading') {
                 peekSummary();
@@ -651,11 +697,11 @@ export class GraphPanel {
                 if (currentZoomLevel === 'file') {
                     currentZoomLevel = 'folder';
                     focusedFile = null;
-                    buildAndRender();
+                    buildAndRender(true);
                 } else if (currentZoomLevel === 'folder') {
                     currentZoomLevel = 'cluster';
                     expandedCluster = null;
-                    buildAndRender();
+                    buildAndRender(true);
                 }
             }
         });
@@ -707,7 +753,7 @@ export class GraphPanel {
                 .text(n => getLabelText(n, false));
         }
 
-        function buildAndRender() {
+        function buildAndRender(resetCamera = false) {
             updateBreadcrumbs();
             
             const fileNodes = Object.values(graph.nodes || {}).filter(n => !n.path.toLowerCase().endsWith('.md'));
@@ -940,128 +986,128 @@ export class GraphPanel {
                 if (isHoveredOrConnected || currentZoomLevel === 'cluster' || currentZoomLevel === 'file' || n.kind !== 'file') {
                     return n.displayLabel;
                 }
-                const slotWidth = Math.max(30, graphWidth / n.rowSize);
+                        const slotWidth = Math.max(30, graphWidth / n.rowSize);
                 const maxChars = Math.max(4, Math.floor((slotWidth - 8) / 6.6));
                 return n.displayLabel.length > maxChars ? n.displayLabel.slice(0, maxChars - 1) + '…' : n.displayLabel;
             }
 
             repoMeta.textContent = \`\${vNodes.length} nodes, \${linkData.length} edges\`;
+            const viewportSel = d3.select("#viewport");
 
-            // Render links
-            const link = linksGroup.selectAll("path")
-                .data(linkData, d => typeof d.source === 'object' ? d.source.id + '-' + d.target.id : d.source + '-' + d.target)
-                .join("path")
-                .attr("class", d => d.kind === 'hierarchy' ? 'hierarchy-edge' : 'dependency-edge ' + (d.state || 'clean'))
-                .style("opacity", d => d.opacity)
-                .attr("marker-end", d => d.kind === 'dependency' ? \`url(#arrow-\${d.state || 'clean'})\` : null);
+            const doUpdate = () => {
+                // Render links
+                const link = linksGroup.selectAll("path")
+                    .data(linkData, d => typeof d.source === 'object' ? d.source.id + '-' + d.target.id : d.source + '-' + d.target)
+                    .join("path")
+                    .attr("class", d => d.kind === 'hierarchy' ? 'hierarchy-edge' : 'dependency-edge ' + (d.state || 'clean'))
+                    .style("opacity", d => d.opacity)
+                    .attr("marker-end", d => d.kind === 'dependency' ? \`url(#arrow-\${d.state || 'clean'})\` : null);
 
-            // Render nodes
-            const node = nodesGroup.selectAll("g")
-                .data(vNodes, d => d.id)
-                .join("g")
-                .attr("class", "node-hit")
-                .call(d3.drag()
-                    .on("start", dragstarted)
-                    .on("drag", dragged)
-                    .on("end", dragended))
-                .on("mouseover", (event, d) => {
-                    const connected = neighbors.get(d.id) || new Set();
-                    nodesGroup.selectAll('.node-label')
-                        .attr('opacity', n => (n.id === d.id || connected.has(n.id)) ? 1 : 0.15)
-                        .text(n => getLabelText(n, n.id === d.id || connected.has(n.id)));
-                })
-                .on("mouseout", () => {
-                    nodesGroup.selectAll('.node-label')
-                        .attr('opacity', 1)
-                        .text(n => getLabelText(n, false));
-                })
-                .on("dblclick", (event, d) => {
-                    event.stopPropagation();
-                    const currentTransform = d3.zoomTransform(svg.node());
-                    const screenX = currentTransform.applyX(d.x);
-                    const screenY = currentTransform.applyY(d.y);
-                    const vw = window.innerWidth;
-                    const vh = window.innerHeight;
+                // Render nodes
+                const node = nodesGroup.selectAll("g")
+                    .data(vNodes, d => d.id)
+                    .join("g")
+                    .attr("class", "node-hit")
+                    .call(d3.drag()
+                        .on("start", dragstarted)
+                        .on("drag", dragged)
+                        .on("end", dragended))
+                    .on("mouseover", (event, d) => {
+                        const connected = neighbors.get(d.id) || new Set();
+                        nodesGroup.selectAll('.node-label')
+                            .attr('opacity', n => (n.id === d.id || connected.has(n.id)) ? 1 : 0.15)
+                            .text(n => getLabelText(n, n.id === d.id || connected.has(n.id)));
+                    })
+                    .on("mouseout", () => {
+                        nodesGroup.selectAll('.node-label')
+                            .attr('opacity', 1)
+                            .text(n => getLabelText(n, false));
+                    })
+                    .on("dblclick", (event, d) => {
+                        event.stopPropagation();
+                        if (d.kind === 'cluster') {
+                            currentZoomLevel = 'folder';
+                            expandedCluster = d.label;
+                        } else if (d.kind === 'folder') {
+                            currentZoomLevel = 'file';
+                            focusedFile = d.files[0];
+                        } else if (d.kind === 'file') {
+                            currentZoomLevel = 'file';
+                            focusedFile = d.path || d.files[0];
+                        }
+                        buildAndRender(true);
+                    })
+                    .on("click", (event, d) => {
+                        event.stopPropagation();
+                        if (!selecting) selectedFiles.clear();
+                        const shouldSelect = d.files.some(file => !selectedFiles.has(file));
+                        d.files.forEach(file => shouldSelect ? selectedFiles.add(file) : selectedFiles.delete(file));
+                        paintSelection();
+                        updateControls();
+                    });
 
-                    const targetTransform = d3.zoomIdentity
-                        .translate(vw / 2 - screenX, vh / 2 - screenY)
-                        .scale(currentTransform.k);
+                node.selectAll("*").remove();
+                
+                node.append("title").text(d => d.displayLabel);
 
-                    svg.transition()
-                        .duration(400)
-                        .ease(d3.easeCubicInOut)
-                        .call(zoom.transform, targetTransform)
-                        .on('end', () => {
-                            if (d.kind === 'cluster') {
-                                currentZoomLevel = 'folder';
-                                expandedCluster = d.label;
-                            } else if (d.kind === 'folder') {
-                                currentZoomLevel = 'file';
-                                focusedFile = d.files[0];
-                            } else if (d.kind === 'file') {
-                                currentZoomLevel = 'file';
-                                focusedFile = d.path || d.files[0];
-                            }
-                            svg.call(zoom.transform, d3.zoomIdentity);
-                            buildAndRender();
-                        });
-                })
-                .on("click", (event, d) => {
-                    event.stopPropagation();
-                    if (!selecting) selectedFiles.clear();
-                    const shouldSelect = d.files.some(file => !selectedFiles.has(file));
-                    d.files.forEach(file => shouldSelect ? selectedFiles.add(file) : selectedFiles.delete(file));
-                    paintSelection();
-                    updateControls();
+                node.append("circle")
+                    .attr("class", "node-halo")
+                    .attr("r", d => d.r + 10)
+                    .attr("fill", d => d.kind === 'cluster' ? 'var(--cluster)' : d.kind === 'folder' ? 'var(--folder)' : d.health_state === 'modified' ? 'var(--modified)' : d.health_state === 'conflict' ? 'var(--conflict)' : 'var(--file)');
+
+                node.append("circle")
+                    .attr("class", d => "node-circle " + d.kind + " " + (d.health_state || ''))
+                    .attr("r", d => d.r);
+
+                node.append("text")
+                    .attr("class", d => "node-label " + d.kind)
+                    .attr("text-anchor", d => ((currentZoomLevel === 'folder' || currentZoomLevel === 'file') && d.rowSize > 3 && d.kind === 'file') ? "end" : "middle")
+                    .attr("transform", d => {
+                        if (currentZoomLevel === 'cluster' || d.kind !== 'file') return 'translate(0, ' + (d.r + 14) + ')';
+                        const isDense = d.rowSize > 3;
+                        if (isDense) {
+                            return 'translate(-6, ' + (d.r + 10) + ') rotate(-45)';
+                        }
+                        return 'translate(0, ' + (d.r + 14) + ')';
+                    })
+                    .text(d => getLabelText(d, false));
+
+                simulation.nodes(vNodes).on("tick", () => {
+                    link.attr("d", d => {
+                        if (d.kind === 'hierarchy') {
+                            return 'M ' + d.source.x + ' ' + d.source.y + ' L ' + d.target.x + ' ' + d.target.y;
+                        }
+                        const dx = d.target.x - d.source.x, dy = d.target.y - d.source.y;
+                        const dr = Math.sqrt(dx * dx + dy * dy);
+                        // calculate offset to avoid arrow inside node
+                        const r = d.target.r + 4;
+                        const endX = d.target.x - dx * (r / dr);
+                        const endY = d.target.y - dy * (r / dr);
+                        return \`M \${d.source.x} \${d.source.y} L \${endX} \${endY}\`;
+                    });
+                    node.attr("transform", d => \`translate(\${d.x},\${d.y})\`);
                 });
 
-            node.selectAll("*").remove();
-            
-            node.append("title").text(d => d.displayLabel);
+                simulation.force("link").links(linkData);
+                simulation.force("x", d3.forceX(graphWidth / 2).strength(0.05));
+                simulation.alpha(1).restart();
 
-            node.append("circle")
-                .attr("class", "node-halo")
-                .attr("r", d => d.r + 10)
-                .attr("fill", d => d.kind === 'cluster' ? 'var(--cluster)' : d.kind === 'folder' ? 'var(--folder)' : d.health_state === 'modified' ? 'var(--modified)' : d.health_state === 'conflict' ? 'var(--conflict)' : 'var(--file)');
+                paintSelection();
+                
+                if (resetCamera) {
+                    svg.transition().duration(350).ease(d3.easeCubicInOut).call(zoom.transform, d3.zoomIdentity);
+                }
+                
+                viewportSel.transition().duration(350).style("opacity", 1);
+            };
 
-            node.append("circle")
-                .attr("class", d => "node-circle " + d.kind + " " + (d.health_state || ''))
-                .attr("r", d => d.r);
-
-            node.append("text")
-                .attr("class", d => "node-label " + d.kind)
-                .attr("text-anchor", d => ((currentZoomLevel === 'folder' || currentZoomLevel === 'file') && d.rowSize > 3 && d.kind === 'file') ? "end" : "middle")
-                .attr("transform", d => {
-                    if (currentZoomLevel === 'cluster' || d.kind !== 'file') return 'translate(0, ' + (d.r + 14) + ')';
-                    const isDense = d.rowSize > 3;
-                    if (isDense) {
-                        return 'translate(-6, ' + (d.r + 10) + ') rotate(-45)';
-                    }
-                    return 'translate(0, ' + (d.r + 14) + ')';
-                })
-                .text(d => getLabelText(d, false));
-
-            simulation.nodes(vNodes).on("tick", () => {
-                link.attr("d", d => {
-                    if (d.kind === 'hierarchy') {
-                        return 'M ' + d.source.x + ' ' + d.source.y + ' L ' + d.target.x + ' ' + d.target.y;
-                    }
-                    const dx = d.target.x - d.source.x, dy = d.target.y - d.source.y;
-                    const dr = Math.sqrt(dx * dx + dy * dy);
-                    // calculate offset to avoid arrow inside node
-                    const r = d.target.r + 4;
-                    const endX = d.target.x - dx * (r / dr);
-                    const endY = d.target.y - dy * (r / dr);
-                    return \`M \${d.source.x} \${d.source.y} L \${endX} \${endY}\`;
-                });
-                node.attr("transform", d => \`translate(\${d.x},\${d.y})\`);
-            });
-
-            simulation.force("link").links(linkData);
-            simulation.force("x", d3.forceX(graphWidth / 2).strength(0.05));
-            simulation.alpha(1).restart();
-
-            paintSelection();
+            if (viewportSel.style("opacity") !== "0") {
+                viewportSel.transition().duration(250).style("opacity", 0)
+                    .on("end", doUpdate)
+                    .on("interrupt", doUpdate);
+            } else {
+                doUpdate();
+            }
         }
 
         function updateBreadcrumbs() {
@@ -1078,8 +1124,7 @@ export class GraphPanel {
         window.zoomTo = function(level) {
             if (level === 'cluster') { currentZoomLevel = 'cluster'; expandedCluster = null; focusedFile = null; }
             if (level === 'folder' && currentZoomLevel === 'file') { currentZoomLevel = 'folder'; focusedFile = null; }
-            resetZoom();
-            buildAndRender();
+            buildAndRender(true);
         }
 
         function dragstarted(event, d) {

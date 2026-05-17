@@ -486,8 +486,9 @@ Panel behavior:
 - open graph panel
 - show current branch name at the top with interactive breadcrumbs (e.g. `Repository > Cluster > File`)
 - **Navigation and Zoom**:
-  - **D3 Zoom & Pan**: Use mouse wheel to zoom and drag to pan the entire graph view.
-  - **Zoom Controls**: Floating (+, -, ⊙) buttons in the bottom-right for manual zoom and reset.
+  - **Multi-Modal D3 Zoom & Pan**: Intelligently distinguishes between native input methods—two-finger pinch to zoom, mouse wheel to zoom, and two-finger swipe to pan without jitter.
+  - **Sticky Breadcrumbs**: The header and breadcrumb navigation are permanently fixed to the top-left of the viewport, ensuring context is never lost during deep zooms or scrolling.
+  - **Smooth Level Transitions**: When drilling down (double-clicking) or navigating out, the camera smoothly resets and frames the new layout seamlessly. Background updates from the AI keep the camera perfectly stable to prevent disruption.
   - **Zoom-Aware Labels**: File labels automatically hide when zoomed out to keep the view clean, reappearing as you zoom in.
   - **Three Zoom Levels**:
     - **Level 1 (Cluster)**: Nodes represent clusters. Label = `cluster name (file count)`.
@@ -497,8 +498,9 @@ Panel behavior:
   - **Strict Band-Height**: Nodes are constrained to horizontal bands that dynamically adapt to the largest node in that depth rank.
   - **Row Wrapping & Centering**: High-density layers (like large folders) automatically wrap into multiple rows and remain perfectly centered.
   - **Density-Aware Styling**: Labels use staggered offsets or diagonal rotation in dense rows to prevent text overlapping.
-- **Single-Scroll UI**: The entire panel (graph, toolbar, and summary) shares a single vertical scrollbar. The summary panel is hidden by default and expands only when `Analyze` is clicked.
+- **Single-Scroll UI**: The entire panel shares a vertical scrollbar. The summary panel slides up gracefully via opacity/transform transitions instead of abrupt display block jumps.
 - **Interaction Rules**:
+  - **Immersive Interaction**: Node labels are unselectable (`user-select: none`) to prevent unsightly browser text highlighting during double-clicks.
   - **Click-Through Background**: The SVG background is non-blocking; buttons and toolbars remain interactive even when the graph overlaps them.
   - **Background Deselect**: Clicking any empty space in the graph clears the current selection.
   - **One-Hop Guard**: If a focused file has no neighbors, a clear "Empty View" message is displayed instead of a blank screen.

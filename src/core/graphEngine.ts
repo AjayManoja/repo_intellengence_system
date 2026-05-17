@@ -183,7 +183,7 @@ export class GraphEngine {
         if (entry.git_status === '?') {
             return 'ignored';
         }
-        if (!entry.cache_valid) {
+        if (entry.git_status === 'M' || entry.git_status === 'A' || !entry.cache_valid) {
             return 'modified';
         }
         return 'clean';
